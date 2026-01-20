@@ -1,0 +1,81 @@
+# RecruitAI - 智能招聘助手系统
+
+这是一个基于 FastAPI 后端和 React 前端的智能招聘助手系统。它集成了简历解析、人才管理、面试辅助等 AI 驱动的功能。
+
+## 项目结构
+
+- `backend/`: 基于 FastAPI 的后端服务
+- `web/fontend/`: 基于 React + Vite + TypeScript 的前端应用
+
+---
+
+## 快速启动指南
+
+### 1. 后端启动步骤 (Backend)
+
+进入后端目录并配置环境：
+
+```bash
+# 进入后端目录
+cd backend
+
+# 创建虚拟环境 (推荐)
+python -m venv venv
+
+# 激活虚拟环境 (MacOS/Linux)
+source venv/bin/activate
+# Windows 激活虚拟环境
+# .\venv\Scripts\activate
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+#### 环境变量配置
+在 `backend` 目录下的`core`文件夹下的`config.py`文件中修改 AI 模型密钥：
+
+```env
+ARK_API_KEY=你的_火山引擎_密钥
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+ARK_MODEL=doubao-seed-1-6-lite-251015
+```
+
+#### 运行后端
+```bash
+uvicorn main:app --reload --port 8000
+```
+后端服务将运行在: [http://localhost:8000](http://localhost:8000)
+
+---
+
+### 2. 前端启动步骤 (Frontend)
+
+进入前端目录并启动开发服务器：
+
+```bash
+# 进入前端目录
+cd web/fontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+```
+前端应用将运行在: [http://localhost:5173](http://localhost:5173) (具体端口请查看终端输出)
+
+---
+
+## 核心功能
+
+1. **简历解析 (Resume Parser)**: 自动提取简历中的姓名、联系方式、工作经验和技能点。
+2. **人才库管理 (Talent Pool)**: 结构化存储候选人信息，支持搜索和筛选。
+3. **面试辅助 (Interview Assistant)**: 根据候选人背景和 JD 自动生成面试题目和评分维度。
+4. **岗位匹配 (Job Matcher)**: (开发中) 智能匹配候选人与职位描述。
+5. **招聘培训 (Recruit Training)**: (开发中) 为新入职人员推荐培训路径。
+
+## 技术栈
+
+- **后端**: FastAPI, SQLAlchemy, SQLite, OpenAI/Instructor (大模型集成)
+- **前端**: React 19, Vite, Tailwind CSS, Lucide React, Zustand (状态管理)
+- **AI**: 豆包 (Ark), Gemini

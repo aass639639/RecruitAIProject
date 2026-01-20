@@ -1,0 +1,8 @@
+#!/Users/baojuan/Desktop/AIE55期课程文件合计（持续更新）/55期课程资料/大模型/项目/智能招聘/code/backend/venv/bin/python3
+# -*- coding: utf-8 -*-
+import re
+import sys
+from dotenv.__main__ import cli
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(cli())
