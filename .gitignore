@@ -2,4 +2,5 @@
 .DS_Store
 
 # 忽略目录中的特定文件
-code/backend/core/config.py #apikey配置文件
+code/backend/core/config.py
+
