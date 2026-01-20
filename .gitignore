@@ -1,6 +1,13 @@
 # 忽略整个目录
 .DS_Store
 
+# Python 虚拟环境
+venv/
+env/
+.venv/
+*.pyc
+__pycache__/
+
 # 忽略目录中的特定文件
-code/backend/core/config.py
+code/backend/core/KEY.py
 
