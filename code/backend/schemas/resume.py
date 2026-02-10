@@ -101,6 +101,8 @@ class ResumeParseResponse(BaseModel):
     experience_list: List[str] = Field(default_factory=list)
     skill_tags: List[str] = Field(default_factory=list)
     years_of_experience: float = Field(0, description="工作年限")
+    position: str = "研发"
+    raw_text: Optional[str] = Field(None, description="简历原始文本")
 
     @validator("work_experience", "education")
     def sort_by_date_desc(cls, v):

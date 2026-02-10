@@ -1,142 +1,174 @@
 
-import React from 'react';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  LineChart, Line, AreaChart, Area 
-} from 'recharts';
-import { Metric } from '../types';
+import React, { useState, useEffect } from 'react';
+import { User } from '../types';
 
-const data = [
-  { name: '周一', 候选人: 45, 匹配数: 32 },
-  { name: '周二', 候选人: 52, 匹配数: 41 },
-  { name: '周三', 候选人: 38, 匹配数: 35 },
-  { name: '周四', 候选人: 65, 匹配数: 58 },
-  { name: '周五', 候选人: 48, 匹配数: 42 },
-  { name: '周六', 候选人: 20, 匹配数: 15 },
-  { name: '周日', 候选人: 15, 匹配数: 10 },
-];
+interface Notification {
+  id: number;
+  content: string;
+  time: string;
+  type: string;
+  job_id?: number;
+}
 
-const metrics: Metric[] = [
-  { label: '简历总数', value: '1,284', change: '+12%', icon: 'fa-users', color: 'blue' },
-  { label: '解析准确率', value: '96.2%', change: '+2.4%', icon: 'fa-check-circle', color: 'green' },
-  { label: '平均匹配精确度', value: '82%', change: '+5%', icon: 'fa-bullseye', color: 'indigo' },
-  { label: '累计节省工时', value: '154', change: '+32%', icon: 'fa-clock', color: 'orange' },
-];
+interface DashboardProps {
+  currentUser: User | null;
+  onNavigate: (view: any, data?: any) => void;
+}
 
-const Dashboard: React.FC = () => {
+const Dashboard: React.FC<DashboardProps> = ({ currentUser, onNavigate }) => {
+  const isAdmin = currentUser?.role === 'admin';
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!currentUser) return;
+      
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:8000/api/v1/dashboard/notifications?user_id=${currentUser.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          setNotifications(data.notifications);
+        }
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchNotifications();
+  }, [currentUser]);
+
+  const handleNotificationClick = (n: Notification) => {
+    if (!isAdmin) {
+      // 面试官点击通知进入“我的面试”
+      onNavigate('my-interviews');
+    } else {
+      // 管理员点击逻辑
+      if (n.type === 'completed') {
+        // 跳转到面试详情报告，并传递面试 ID
+        onNavigate('evaluations', { interviewId: n.id });
+      } else if (n.type === 'accepted' && n.job_id) {
+        // 跳转到职位管理并展开对应的职位
+        onNavigate('jd-management', { jdId: n.job_id });
+      } else {
+        onNavigate('talent');
+      }
+    }
+  };
+
   return (
-    <div className="space-y-8">
-      <header className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">招聘效能概览</h1>
-          <p className="text-sm text-slate-500 mt-1">基于 AI 驱动的实时招聘数据统计</p>
-        </div>
-        <button className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center">
-          <i className="fas fa-file-export mr-2"></i> 导出报表
-        </button>
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <header>
+        <h1 className="text-3xl font-black text-slate-800">
+          下午好，{currentUser?.full_name} 👋
+        </h1>
+        <p className="text-slate-500 mt-2 font-medium">欢迎回到 RecruitAI 智能招聘管理系统</p>
       </header>
 
-      {/* 核心指标卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {metrics.map((m, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div className={`p-3 rounded-xl bg-${m.color}-50 text-${m.color}-600`}>
-                <i className={`fas ${m.icon} text-xl`}></i>
+      {isAdmin && (
+        <section>
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6">快捷操作</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <button 
+              onClick={() => onNavigate('parse')}
+              className="group p-8 bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-xl hover:border-indigo-500/30 hover:-translate-y-1 transition-all text-left relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                <i className="fas fa-file-import text-6xl text-indigo-600"></i>
               </div>
-              <span className={`text-xs font-bold px-2 py-1 rounded-lg ${m.change.startsWith('+') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                {m.change}
-              </span>
-            </div>
-            <p className="text-sm text-slate-500 font-medium">{m.label}</p>
-            <h3 className="text-3xl font-black text-slate-800 mt-2">{m.value}</h3>
-          </div>
-        ))}
-      </div>
+              <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                <i className="fas fa-file-import text-xl"></i>
+              </div>
+              <h4 className="text-xl font-black text-slate-800 mb-2">人才录入</h4>
+              <p className="text-sm text-slate-500 leading-relaxed font-medium">利用 AI 智能解析单份或批量简历，快速填充人才库</p>
+            </button>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* 活跃度图表 */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex justify-between items-center mb-8">
-            <h3 className="text-lg font-bold text-slate-800">招聘活跃度趋势</h3>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center text-xs text-slate-500">
-                <span className="w-3 h-3 bg-indigo-500 rounded-full mr-2"></span> 简历解析
+            <button 
+              onClick={() => onNavigate('jd-management')}
+              className="group p-8 bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-xl hover:border-emerald-500/30 hover:-translate-y-1 transition-all text-left relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                <i className="fas fa-briefcase text-6xl text-emerald-600"></i>
               </div>
-            </div>
+              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                <i className="fas fa-briefcase text-xl"></i>
+              </div>
+              <h4 className="text-xl font-black text-slate-800 mb-2">我要招聘</h4>
+              <p className="text-sm text-slate-500 leading-relaxed font-medium">管理职位描述 (JD)，开启招聘流程，精准匹配人才</p>
+            </button>
+
+            <button 
+              onClick={() => onNavigate('knowledge-base')}
+              className="group p-8 bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-xl hover:border-amber-500/30 hover:-translate-y-1 transition-all text-left relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                <i className="fas fa-book text-6xl text-amber-600"></i>
+              </div>
+              <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                <i className="fas fa-book text-xl"></i>
+              </div>
+              <h4 className="text-xl font-black text-slate-800 mb-2">学习问答</h4>
+              <p className="text-sm text-slate-500 leading-relaxed font-medium">访问企业知识库，查看面试指南、技术规范及 AI 问答</p>
+            </button>
           </div>
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
-                <defs>
-                  <linearGradient id="colorCand" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }}
-                />
-                <Area type="monotone" dataKey="候选人" stroke="#6366f1" fillOpacity={1} fill="url(#colorCand)" strokeWidth={4} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+        </section>
+      )}
+
+      <section>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">通知中心</h3>
+          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md uppercase tracking-wider">最新动态</span>
         </div>
-
-        {/* 效率提升指标 */}
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-800 mb-8">流程效率提升</h3>
-          <div className="space-y-8">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-600">简历初筛耗时</span>
-                <div className="flex items-center text-green-600 text-sm font-black">
-                  <i className="fas fa-arrow-down mr-1"></i> 52%
-                </div>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div className="bg-indigo-600 h-full rounded-full transition-all duration-1000" style={{ width: '52%' }}></div>
-              </div>
+        
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden min-h-[200px] flex flex-col">
+          {loading ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-12 text-slate-400">
+              <i className="fas fa-circle-notch fa-spin text-3xl mb-4 text-indigo-500"></i>
+              <p className="text-sm font-medium">正在获取最新动态...</p>
             </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-600">面试安排效率</span>
-                <div className="flex items-center text-green-600 text-sm font-black">
-                  <i className="fas fa-arrow-down mr-1"></i> 40%
+          ) : notifications.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {notifications.map((n) => (
+                <div 
+                  key={n.id} 
+                  onClick={() => handleNotificationClick(n)}
+                  className="p-6 hover:bg-slate-50/50 transition-colors flex items-start space-x-4 cursor-pointer group"
+                >
+                  <div className={`w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center transition-transform group-hover:scale-110 ${
+                    n.type === 'completed' ? 'bg-emerald-50 text-emerald-600' :
+                    n.type === 'accepted' ? 'bg-indigo-50 text-indigo-600' :
+                    n.type === 'rejected' ? 'bg-rose-50 text-rose-600' :
+                    'bg-amber-50 text-amber-600'
+                  }`}>
+                    <i className={`fas ${
+                      n.type === 'completed' ? 'fa-check-double' :
+                      n.type === 'accepted' ? 'fa-calendar-check' :
+                      n.type === 'rejected' ? 'fa-calendar-xmark' :
+                      'fa-clock'
+                    } text-sm`}></i>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-700 font-bold leading-relaxed mb-1">
+                      {n.content}
+                    </p>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{n.time}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div className="bg-indigo-500 h-full rounded-full transition-all duration-1000" style={{ width: '40%' }}></div>
-              </div>
+              ))}
             </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-600">入职周期缩短</span>
-                <div className="flex items-center text-green-600 text-sm font-black">
-                  <i className="fas fa-arrow-down mr-1"></i> 25%
-                </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-12 text-slate-400">
+              <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
+                <i className="fas fa-bell-slash text-2xl text-slate-200"></i>
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div className="bg-indigo-400 h-full rounded-full transition-all duration-1000" style={{ width: '25%' }}></div>
-              </div>
+              <p className="text-sm font-medium">暂无最新动态</p>
             </div>
-          </div>
-
-          <div className="mt-10 p-5 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
-            <p className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest mb-3 flex items-center">
-              <i className="fas fa-sparkles mr-2"></i> AI 洞察
-            </p>
-            <p className="text-sm text-indigo-900 leading-relaxed font-medium">
-              本周语义匹配精确度提升显著，主要得益于技术岗位的样本库扩充。初筛效率已突破 50% 预设目标。
-            </p>
-          </div>
+          )}
         </div>
-      </div>
+      </section>
     </div>
   );
 };

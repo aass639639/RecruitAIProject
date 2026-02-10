@@ -10,7 +10,9 @@ def get_candidates(
     skip: int = 0, 
     limit: int = 100,
     search: Optional[str] = None,
-    position: Optional[str] = None
+    position: Optional[str] = None,
+    job_id: Optional[int] = None,
+    status: Optional[str] = None
 ):
     query = db.query(Candidate)
     
@@ -22,6 +24,12 @@ def get_candidates(
     
     if position and position != "全部":
         query = query.filter(Candidate.position == position)
+        
+    if job_id:
+        query = query.filter(Candidate.job_id == job_id)
+        
+    if status:
+        query = query.filter(Candidate.status == status)
         
     return query.offset(skip).limit(limit).all()
 

@@ -9,7 +9,9 @@ from schemas.interview_ai import (
     InterviewQuestionRegenerateRequest,
     InterviewQuestionManualCompleteRequest,
     InterviewCriteriaRefreshRequest,
-    InterviewCriteriaRefreshResponse
+    InterviewCriteriaRefreshResponse,
+    InterviewEvaluationRequest,
+    InterviewEvaluationResponse
 )
 from sqlalchemy.orm import Session
 from crud.candidate import get_candidate
@@ -264,5 +266,69 @@ class InterviewAIService:
         except Exception as e:
             logger.error(f"Error refreshing evaluation criteria: {str(e)}")
             raise Exception(f"评分维度更新失败: {str(e)}")
+
+    async def evaluate_interview(
+        self, db: Session, request: InterviewEvaluationRequest
+    ) -> InterviewEvaluationResponse:
+        if not self.client:
+            raise ValueError("AI Client not configured.")
+
+        candidate = get_candidate(db, request.candidate_id)
+        if not candidate:
+            raise ValueError("Candidate not found")
+
+        # 构造面试表现上下文
+        performances_text = ""
+        for i, p in enumerate(request.performances):
+            performances_text += f"""
+第 {i+1} 题：{p.question}
+候选人回答：{p.answer if p.answer else "未记录"}
+面试官记录：{p.notes if p.notes else "未记录"}
+评分：{p.score if p.score else "未评分"}
+---"""
+
+        system_prompt = """你是一个资深的招聘专家和面试评估官。你的任务是根据面试过程中的问答记录、面试官的笔记以及招聘 JD，对候选人进行全面、客观的评价。
+评价需要涵盖以下几个维度：
+1. **技术层面**：候选人对专业知识的掌握程度，解决问题的能力。
+2. **逻辑表达**：候选人回答问题是否有条理，是否能够清晰地表达自己的观点。
+3. **思路清晰度**：在面对复杂问题或压力面试时，候选人的思考过程是否清晰，是否有系统性的思维。
+4. **综合建议**：结合以上维度，给出最终的录用建议或后续跟进建议。
+
+要求：
+- 评价要客观、专业，避免笼统的描述。
+- 给出具体的优点和待提升的点。
+- 字数适中，结构清晰。"""
+
+        user_prompt = f"""
+### 招聘 JD 内容：
+{request.jd}
+
+### 候选人信息：
+姓名：{candidate.name}
+职位：{candidate.position}
+
+### 面试表现记录：
+{performances_text}
+
+### 面试官综合总结：
+{request.overall_notes if request.overall_notes else "无"}
+
+请根据以上信息，给出详细的面试评价。"""
+
+        try:
+            print(f"Evaluating interview for candidate {request.candidate_id}")
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                response_model=InterviewEvaluationResponse,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error evaluating interview: {str(e)}")
+            raise Exception(f"面试评价生成失败: {str(e)}")
 
 interview_ai_service = InterviewAIService()

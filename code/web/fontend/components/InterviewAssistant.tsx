@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import axios from 'axios';
 import { geminiService } from '../services/geminiService';
 import { Candidate, InterviewPlan } from '../types';
@@ -6,9 +8,10 @@ import { Candidate, InterviewPlan } from '../types';
 interface InterviewAssistantProps {
   candidate: Candidate | null;
   interviewId?: number | null;
+  onFinish?: () => void;
 }
 
-const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, interviewId: propInterviewId }) => {
+const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, interviewId: propInterviewId, onFinish }) => {
   const [loading, setLoading] = useState(false);
   const [plan, setPlan] = useState<InterviewPlan | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
@@ -45,7 +48,7 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
   }, [notes, plan, hiringDecision, interviewId]);
   
   // 配置状态
-  const [jd, setJd] = useState("资深软件开发工程师，要求精通前端技术栈，具备良好的系统架构能力和团队协作精神。");
+  const [jd, setJd] = useState("");
   const [questionCount, setQuestionCount] = useState(5);
   const [difficultyDist, setDifficultyDist] = useState({ '基础': 2, '中等': 2, '困难': 1 });
   const [feedback, setFeedback] = useState('');
@@ -58,6 +61,10 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
   const [manualQuestionText, setManualQuestionText] = useState('');
   const [isCompletingManual, setIsCompletingManual] = useState(false);
   const [isRefreshingCriteria, setIsRefreshingCriteria] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
+  const [evaluationResult, setEvaluationResult] = useState<any>(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
 
   // 当 plan 变化时更新已使用题目列表
   useEffect(() => {
@@ -99,6 +106,30 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
         setInterviewId(currentInterview.id);
         setStatus(currentInterview.status);
         
+        // 如果有关联的 JD，获取 JD 详情用于智能出题
+        const jobId = currentInterview.candidate?.job_id;
+        if (jobId) {
+          try {
+            const jdResponse = await axios.get(`http://localhost:8000/api/v1/job-descriptions/${jobId}`);
+            if (jdResponse.data && jdResponse.data.description) {
+              setJd(jdResponse.data.description);
+              console.log("Loaded JD description for question generation:", jdResponse.data.title);
+            }
+          } catch (jdError) {
+            console.error("Failed to fetch JD description:", jdError);
+          }
+        } else if (candidate?.job_id) {
+          // 兜底逻辑：如果面试记录里没带 candidate，尝试从 props 里的 candidate 获取
+          try {
+            const jdResponse = await axios.get(`http://localhost:8000/api/v1/job-descriptions/${candidate.job_id}`);
+            if (jdResponse.data && jdResponse.data.description) {
+              setJd(jdResponse.data.description);
+            }
+          } catch (jdError) {
+            console.error("Failed to fetch JD description from candidate prop:", jdError);
+          }
+        }
+        
         // 如果已经有题目，加载它们
         if (currentInterview.questions && currentInterview.questions.length > 0) {
           setPlan({
@@ -107,6 +138,7 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
           });
           setNotes(currentInterview.notes || '');
           setHiringDecision(currentInterview.hiring_decision || '');
+          setEvaluationResult(currentInterview.ai_evaluation || null);
           
           // 自动计算当前进度
           // 找到第一个没有评分且没有笔记的问题索引
@@ -146,7 +178,8 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
         questions: plan?.questions,
         evaluation_criteria: plan?.evaluation_criteria,
         notes: notes,
-        hiring_decision: hiringDecision
+        hiring_decision: hiringDecision,
+        ai_evaluation: evaluationResult
       });
 
       // 面试结束，将候选人状态设回 none，以便管理员进行录用/拒绝操作
@@ -156,7 +189,11 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
 
       setStatus(finalStatus);
       alert(statusText);
-      window.location.reload(); 
+      if (onFinish) {
+        onFinish();
+      } else {
+        window.location.reload(); 
+      }
     } catch (error) {
       console.error('Error finishing interview:', error);
       alert('操作失败');
@@ -380,6 +417,16 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
     if (candidate || propInterviewId) {
       fetchInterview(propInterviewId);
     }
+    
+    // 初始化语音识别
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognitionInstance = new SpeechRecognition();
+      recognitionInstance.continuous = true;
+      recognitionInstance.interimResults = true;
+      recognitionInstance.lang = 'zh-CN';
+      setRecognition(recognitionInstance);
+    }
   }, [candidate, propInterviewId]);
 
   const handleQuestionNoteChange = (index: number, value: string) => {
@@ -387,6 +434,87 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
     const newQuestions = [...plan.questions];
     newQuestions[index] = { ...newQuestions[index], notes: value };
     setPlan({ ...plan, questions: newQuestions });
+  };
+
+  const handleQuestionAnswerChange = (index: number, value: string) => {
+    if (!plan) return;
+    const newQuestions = [...plan.questions];
+    newQuestions[index] = { ...newQuestions[index], answer: value };
+    setPlan({ ...plan, questions: newQuestions });
+  };
+
+  const startRecording = (index: number) => {
+    if (!recognition) {
+      alert('您的浏览器不支持语音识别功能');
+      return;
+    }
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        const currentAnswer = plan?.questions[index].answer || '';
+        handleQuestionAnswerChange(index, currentAnswer + finalTranscript);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    if (recognition) {
+      recognition.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleEvaluateInterview = async () => {
+    if (!interviewId || !plan) return;
+    
+    setIsEvaluating(true);
+    try {
+      const response = await axios.post(`http://localhost:8000/api/v1/interviews/evaluate`, {
+        candidate_id: Number(candidate?.id),
+        jd: jd,
+        performances: plan.questions.map(q => ({
+          question: q.question,
+          answer: q.answer,
+          notes: q.notes,
+          score: q.score
+        })),
+        overall_notes: notes
+      });
+      setEvaluationResult(response.data);
+      
+      // 同步 AI 评价结果到面试记录
+      await axios.put(`http://localhost:8000/api/v1/interviews/${interviewId}`, {
+        ai_evaluation: response.data
+      });
+    } catch (error) {
+      console.error('Failed to get AI evaluation:', error);
+      alert('AI 评价生成失败');
+    } finally {
+      setIsEvaluating(false);
+    }
   };
 
   const handleQuestionScoreChange = (index: number, score: number) => {
@@ -576,7 +704,7 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
                   <p className="text-[10px] font-black text-slate-400 uppercase">评分维度</p>
                   {(status === 'preparing' || status === 'accepted') && (
                     <button 
-                      onClick={handleRefreshCriteria}
+                      onClick={() => handleRefreshCriteria()}
                       disabled={isRefreshingCriteria}
                       className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center"
                       title="根据当前题目重新生成评分维度"
@@ -699,30 +827,69 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="p-5 border border-slate-100 rounded-2xl">
                         <p className="text-[10px] font-black text-slate-400 uppercase mb-2">考察目的</p>
-                        <p className="text-sm text-slate-600 leading-relaxed font-medium">
-                          {plan.questions[currentStep].purpose}
-                        </p>
+                        <div className="text-sm text-slate-600 leading-relaxed font-medium markdown-content">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {plan.questions[currentStep].purpose}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                       <div className="p-5 border border-slate-100 rounded-2xl">
                         <p className="text-[10px] font-black text-slate-400 uppercase mb-2">期望回答</p>
-                        <p className="text-sm text-slate-600 leading-relaxed font-medium">
-                          {plan.questions[currentStep].expected_answer}
-                        </p>
+                        <div className="text-sm text-slate-600 leading-relaxed font-medium markdown-content">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {plan.questions[currentStep].expected_answer}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                     </div>
 
                     <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
                       <p className="text-[10px] font-black text-indigo-400 uppercase mb-2">出题依据</p>
-                      <p className="text-sm text-indigo-900 leading-relaxed font-medium italic">
+                      <div className="text-sm text-indigo-900 leading-relaxed font-medium italic markdown-content">
                         <i className="fas fa-quote-left text-[10px] mr-2 opacity-50"></i>
-                        {plan.questions[currentStep].source}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {plan.questions[currentStep].source}
+                        </ReactMarkdown>
                         <i className="fas fa-quote-right text-[10px] ml-2 opacity-50"></i>
-                      </p>
+                      </div>
                     </div>
 
                     {/* 当前题目评价区 - 仅在面试进行中展示 */}
                     {status === 'in_progress' && (
                       <div className="pt-6 border-t border-slate-100 space-y-6">
+                        <div>
+                          <div className="flex justify-between items-center mb-3">
+                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">候选人回答 (支持语音录入)</label>
+                            <button
+                              onClick={() => isRecording ? stopRecording() : startRecording(currentStep)}
+                              className={`flex items-center space-x-2 px-3 py-1 rounded-full text-[10px] font-black transition-all ${
+                                isRecording 
+                                  ? 'bg-rose-100 text-rose-600 animate-pulse' 
+                                  : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                              }`}
+                            >
+                              <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
+                              <span>{isRecording ? '正在录音... 点击停止' : '开始录音'}</span>
+                            </button>
+                          </div>
+                          <textarea
+                            value={plan.questions[currentStep].answer || ''}
+                            onChange={(e) => handleQuestionAnswerChange(currentStep, e.target.value)}
+                            className="w-full h-32 p-4 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm bg-slate-50/30"
+                            placeholder="在此记录候选人的回答，或点击上方麦克风进行语音转文字..."
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">面试官笔记</label>
+                          <textarea
+                            value={plan.questions[currentStep].notes || ''}
+                            onChange={(e) => handleQuestionNoteChange(currentStep, e.target.value)}
+                            className="w-full h-24 p-4 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm bg-slate-50/30"
+                            placeholder="记录该题目的面试要点、亮点或不足..."
+                          />
+                        </div>
+
                         <div>
                           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">本题评分</label>
                           <div className="flex space-x-2">
@@ -807,6 +974,83 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
                         className="w-full h-48 p-6 bg-slate-50 border border-slate-100 rounded-3xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm"
                       />
                     </div>
+
+                    {/* AI 综合评价区域 */}
+                    <div className="pt-8 border-t border-slate-100">
+                      <div className="flex justify-between items-center mb-6">
+                        <h4 className="text-sm font-black text-slate-800 flex items-center">
+                          <i className="fas fa-robot text-indigo-500 mr-2"></i> AI 智能评估分析
+                        </h4>
+                        <button
+                          onClick={handleEvaluateInterview}
+                          disabled={isEvaluating}
+                          className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-black hover:bg-indigo-100 transition-all flex items-center"
+                        >
+                          {isEvaluating ? (
+                            <><i className="fas fa-circle-notch fa-spin mr-2"></i> 正在生成评估...</>
+                          ) : (
+                            <><i className="fas fa-magic mr-2"></i> 生成 AI 面试评价</>
+                          )}
+                        </button>
+                      </div>
+
+                      {evaluationResult ? (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                          {/* 综合建议置顶 */}
+                          <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-3xl shadow-sm">
+                            <div className="flex items-center mb-3">
+                              <div className="w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center mr-3 shadow-sm">
+                                <i className="fas fa-lightbulb text-xs"></i>
+                              </div>
+                              <p className="text-xs font-black text-indigo-600 uppercase tracking-wider">AI 综合建议与决策</p>
+                            </div>
+                            <div className="text-sm text-indigo-900 font-medium leading-relaxed markdown-content pl-11">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {evaluationResult.comprehensive_suggestion}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+
+                          {/* 分维度评价 */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-colors">
+                              <p className="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center">
+                                <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
+                              </p>
+                              <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {evaluationResult.technical_evaluation}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-colors">
+                              <p className="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center">
+                                <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
+                              </p>
+                              <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {evaluationResult.logical_evaluation}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-colors">
+                              <p className="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center">
+                                <i className="fas fa-brain mr-2 text-indigo-400"></i> 思路清晰度
+                              </p>
+                              <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {evaluationResult.clarity_evaluation}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-8 border-2 border-dashed border-slate-100 rounded-3xl text-center">
+                          <p className="text-xs text-slate-400">点击上方按钮，AI 将根据面试过程中的表现给出专业评价建议</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -848,7 +1092,7 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
                     onClick={handleFinishInterview}
                     className="bg-indigo-600 text-white px-10 py-3 rounded-xl text-sm font-black hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all"
                   >
-                    {status === 'pending_decision' ? '保存并完成评价' : '提交并完成面试'}
+                    提交并完成面试
                   </button>
                 )}
               </div>

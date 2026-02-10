@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import axios from 'axios';
 import { Interview, User, Candidate } from '../types';
 
 interface MyInterviewsProps {
   currentUser: User | null;
-  onStartInterview: (candidate: Candidate) => void;
+  onStartInterview: (candidate: Candidate, interviewId?: number) => void;
 }
 
 const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartInterview }) => {
@@ -206,8 +208,12 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                   className="w-full h-48 p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm resize-none"
                 />
               ) : (
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-sm text-amber-900 leading-relaxed min-h-[150px] whitespace-pre-wrap">
-                  {selectedInterview.notes || "未填写面试笔记"}
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-sm text-amber-900 leading-relaxed min-h-[150px] markdown-content">
+                  {selectedInterview.notes ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {selectedInterview.notes}
+                    </ReactMarkdown>
+                  ) : "未填写面试笔记"}
                 </div>
               )}
               
@@ -230,6 +236,61 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
 
           {/* 右侧：面试题目详情 */}
           <div className="lg:col-span-2 space-y-6">
+            {selectedInterview.ai_evaluation && (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">AI 智能面试评估</h3>
+                  <div className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black flex items-center">
+                    <i className="fas fa-robot mr-2"></i> AI 自动生成
+                  </div>
+                </div>
+                
+                <div className="space-y-6">
+                  <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
+                    <p className="text-[10px] font-black text-indigo-400 uppercase mb-2 tracking-wider">综合建议与决策</p>
+                    <div className="text-sm text-indigo-900 font-medium leading-relaxed markdown-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {selectedInterview.ai_evaluation.comprehensive_suggestion}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
+                        <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
+                      </p>
+                      <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedInterview.ai_evaluation.technical_evaluation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
+                        <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
+                      </p>
+                      <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedInterview.ai_evaluation.logical_evaluation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
+                        <i className="fas fa-brain mr-2 text-indigo-400"></i> 思路清晰度
+                      </p>
+                      <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedInterview.ai_evaluation.clarity_evaluation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">面试题目及考察点</h3>
               <div className="space-y-8">
@@ -263,6 +324,16 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                         )}
                       </div>
                       <h4 className="text-lg font-bold text-slate-800 mb-4">{q.question}</h4>
+                      {q.answer && (
+                        <div className="mb-4 p-4 bg-indigo-50/30 rounded-xl border border-indigo-100/50 markdown-content">
+                          <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">候选人回答</p>
+                          <div className="text-sm text-slate-700 leading-relaxed">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {q.answer}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
                           <p className="text-[10px] font-black text-slate-400 uppercase mb-1">考察目的</p>
@@ -284,9 +355,11 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                       {q.notes && (
                         <div className="mt-4 pt-4 border-t border-slate-100">
                           <p className="text-[10px] font-black text-indigo-400 uppercase mb-2">面试评价</p>
-                          <p className="text-sm text-slate-700 italic leading-relaxed bg-white p-4 rounded-xl border border-slate-50">
-                            {q.notes}
-                          </p>
+                          <div className="text-sm text-slate-700 italic leading-relaxed bg-white p-4 rounded-xl border border-slate-50 markdown-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {q.notes}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -363,7 +436,7 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                   {interview.status === 'pending' && (
                     <>
                       <button 
-                        onClick={() => handleStatusUpdate(interview.id, 'in_progress', interview.candidate_id)}
+                        onClick={() => handleStatusUpdate(interview.id, 'accepted', interview.candidate_id)}
                         className="flex-1 md:flex-none bg-indigo-600 text-white px-6 py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all"
                       >
                         接受面试

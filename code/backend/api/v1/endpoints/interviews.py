@@ -78,6 +78,23 @@ async def refresh_evaluation_criteria(
         print(error_msg)
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/evaluate", response_model=schema_interview_ai.InterviewEvaluationResponse)
+async def evaluate_interview(
+    request: schema_interview_ai.InterviewEvaluationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    智能面试评价
+    """
+    try:
+        print(f"Evaluating interview for candidate {request.candidate_id}")
+        return await interview_assistant_service.evaluate_interview(db, request)
+    except Exception as e:
+        import traceback
+        error_msg = f"Error in evaluate_interview: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/", response_model=List[schema_interview.Interview])
 def read_interviews(
     skip: int = 0,
@@ -127,7 +144,7 @@ def create_interview_record(
         raise HTTPException(status_code=404, detail=f"管理员(ID:{interview.admin_id})不存在")
 
     # 检查该候选人是否已有活跃面试（除了已完成、已取消、已拒绝之外的状态）
-    active_statuses = ["pending", "accepted", "preparing", "in_progress"]
+    active_statuses = ["pending", "accepted", "preparing", "in_progress", "pending_decision"]
     existing_active = db.query(crud_interview.Interview).filter(
         crud_interview.Interview.candidate_id == interview.candidate_id,
         crud_interview.Interview.status.in_(active_statuses)

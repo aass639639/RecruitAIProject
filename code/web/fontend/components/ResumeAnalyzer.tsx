@@ -1,18 +1,38 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { geminiService } from '../services/geminiService';
 import { Candidate } from '../types';
+
+interface BatchFile {
+  file: File;
+  status: 'pending' | 'uploading' | 'parsing' | 'success' | 'failed';
+  error?: string;
+  result?: Partial<Candidate>;
+}
 
 const ResumeAnalyzer: React.FC = () => {
   const [text, setText] = useState('');
   const [parsing, setParsing] = useState(false);
   const [candidate, setCandidate] = useState<Partial<Candidate> | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  
+  // 批量上传相关状态
+  const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const batchInputRef = useRef<HTMLInputElement>(null);
 
   const handleParse = async () => {
     if (!text.trim()) return;
     setParsing(true);
+    setIsBatchMode(false);
     try {
       const result = await geminiService.parseResume(text);
       if (result.is_resume === false) {
@@ -28,6 +48,145 @@ const ResumeAnalyzer: React.FC = () => {
       alert("简历解析失败，请检查输入。");
     } finally {
       setParsing(false);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 验证文件类型
+    const allowedTypes = ['.pdf', '.doc', '.docx', '.txt'];
+    const extension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!allowedTypes.includes(extension)) {
+      alert('只支持 PDF, Word 或 TXT 格式的文件');
+      return;
+    }
+
+    setIsBatchMode(false);
+    setUploading(true);
+    try {
+      const result = await geminiService.uploadResume(file);
+      if (result.is_resume === false) {
+        alert(result.summary || "检测到上传的文件可能不是有效的简历，请确保文件包含个人经历和职业信息。");
+        return;
+      }
+      setCandidate(result);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('File upload error:', error);
+      alert('文件上传解析失败，请重试');
+    } finally {
+      setUploading(false);
+      // 清空 input，以便同一个文件可以再次触发 change
+      event.target.value = '';
+    }
+  };
+
+  const handleBatchFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const newBatchFiles: BatchFile[] = files.map(file => ({
+      file,
+      status: 'pending'
+    }));
+
+    setBatchFiles(prev => [...prev, ...newBatchFiles]);
+    setIsBatchMode(true);
+    setCandidate(null);
+    if (e.target) e.target.value = '';
+  };
+
+  const removeBatchFile = (index: number) => {
+    setBatchFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearBatchFiles = () => {
+    setBatchFiles([]);
+    setIsBatchMode(false);
+  };
+
+  const startBatchParse = async () => {
+    const pendingFiles = batchFiles.filter(f => f.status === 'pending' || f.status === 'failed');
+    if (pendingFiles.length === 0) return;
+
+    setParsing(true);
+    
+    // 依次解析文件
+    for (let i = 0; i < batchFiles.length; i++) {
+      if (batchFiles[i].status !== 'pending' && batchFiles[i].status !== 'failed') continue;
+
+      setBatchFiles(prev => {
+        const next = [...prev];
+        next[i] = { ...next[i], status: 'parsing' };
+        return next;
+      });
+
+      try {
+        const result = await geminiService.uploadResume(batchFiles[i].file);
+        setBatchFiles(prev => {
+          const next = [...prev];
+          next[i] = { ...next[i], status: 'success', result };
+          return next;
+        });
+      } catch (error) {
+        setBatchFiles(prev => {
+          const next = [...prev];
+          next[i] = { ...next[i], status: 'failed', error: '解析失败' };
+          return next;
+        });
+      }
+    }
+    setParsing(false);
+  };
+
+  const handleBatchImport = async () => {
+    const successfulFiles = batchFiles.filter(f => f.status === 'success' && f.result);
+    if (successfulFiles.length === 0) {
+      alert("没有解析成功的简历可供入库");
+      return;
+    }
+
+    setImporting(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const batchFile of successfulFiles) {
+      try {
+        const result = batchFile.result!;
+        const saveData = {
+          name: result.name || '未知',
+          email: result.email || '',
+          phone: result.phone || '',
+          education: result.education_summary || result.education || '',
+          experience: result.experience_list || [],
+          projects: result.projects || [],
+          skills: result.skill_tags || [],
+          summary: result.summary || '',
+          education_summary: result.education_summary || '',
+          experience_list: result.experience_list || [],
+          skill_tags: result.skill_tags || [],
+          parsing_score: result.parsing_score || 0,
+          position: result.position || '研发',
+          years_of_experience: result.years_of_experience || 0
+        };
+
+        await axios.post('http://localhost:8000/api/v1/candidates/', saveData);
+        successCount++;
+      } catch (error: any) {
+        console.error("入库失败:", error);
+        failCount++;
+      }
+    }
+
+    setImporting(false);
+    alert(`入库完成！成功: ${successCount} 份, 失败: ${failCount} 份`);
+    
+    // 清理已成功的
+    setBatchFiles(prev => prev.filter(f => f.status !== 'success'));
+    if (batchFiles.filter(f => f.status !== 'success').length === 0) {
+      setIsBatchMode(false);
     }
   };
 
@@ -66,8 +225,45 @@ const ResumeAnalyzer: React.FC = () => {
   };
 
   const updateCandidate = (field: keyof Candidate, value: any) => {
-    if (!candidate) return;
-    setCandidate({ ...candidate, [field]: value });
+    if (editingIndex !== null) {
+      // 批量模式下的编辑
+      setBatchFiles(prev => {
+        const next = [...prev];
+        next[editingIndex] = {
+          ...next[editingIndex],
+          result: {
+            ...next[editingIndex].result,
+            [field]: value
+          }
+        };
+        return next;
+      });
+      // 同时同步到当前显示的 candidate 以便预览
+      setCandidate(prev => prev ? { ...prev, [field]: value } : null);
+    } else {
+      // 普通模式下的编辑
+      if (!candidate) return;
+      setCandidate({ ...candidate, [field]: value });
+    }
+  };
+
+  const handleEditBatchItem = (index: number) => {
+    const item = batchFiles[index];
+    if (item.status === 'success' && item.result) {
+      setEditingIndex(index);
+      setCandidate(item.result);
+      setIsEditing(true);
+      // 滚动到编辑区域
+      setTimeout(() => {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }, 100);
+    }
+  };
+
+  const finishEditing = () => {
+    setEditingIndex(null);
+    setIsEditing(false);
+    setCandidate(null);
   };
 
   return (
@@ -78,15 +274,58 @@ const ResumeAnalyzer: React.FC = () => {
           AI 智能简历解析
         </h2>
         <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-          将简历原始内容（PDF、Word 或纯文本）粘贴至下方。RecruitAI 将利用 BERT+CRF 模型精准提取关键实体信息。
+          将简历原始内容（PDF、Word 或纯文本）上传或粘贴至下方。RecruitAI 将利用 AI 模型精准提取关键实体信息。
         </p>
 
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="在此粘贴简历文本内容..."
-          className="w-full h-56 p-5 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm font-mono bg-slate-50/50 placeholder:text-slate-300"
-        />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="md:col-span-2">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="在此粘贴简历文本内容..."
+              className="w-full h-64 p-5 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm font-mono bg-slate-50/50 placeholder:text-slate-300"
+            />
+          </div>
+          
+          <div className="flex flex-col space-y-4">
+            <div className="flex-1 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/30 flex flex-col items-center justify-center p-6 text-center hover:border-indigo-300 hover:bg-indigo-50/30 transition-all group relative">
+              <input
+                type="file"
+                onChange={handleFileUpload}
+                accept=".pdf,.doc,.docx,.txt"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                disabled={uploading || parsing}
+              />
+              <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                {uploading ? (
+                  <i className="fas fa-spinner fa-spin text-xl text-indigo-600"></i>
+                ) : (
+                  <i className="fas fa-file-arrow-up text-xl text-slate-400 group-hover:text-indigo-600"></i>
+                )}
+              </div>
+              <h4 className="text-xs font-bold text-slate-700 mb-1">
+                单份解析
+              </h4>
+            </div>
+
+            <div className="flex-1 border-2 border-dashed border-indigo-200 rounded-2xl bg-indigo-50/10 flex flex-col items-center justify-center p-6 text-center hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group relative">
+              <input
+                type="file"
+                multiple
+                onChange={handleBatchFileSelect}
+                accept=".pdf,.doc,.docx,.txt"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                disabled={uploading || parsing}
+              />
+              <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                <i className="fas fa-copy text-xl text-indigo-500 group-hover:text-indigo-600"></i>
+              </div>
+              <h4 className="text-xs font-bold text-indigo-700 mb-1">
+                批量解析
+              </h4>
+            </div>
+          </div>
+        </div>
 
         <div className="mt-6 flex justify-between items-center">
           <div className="text-xs text-slate-400 font-medium italic">
@@ -111,6 +350,116 @@ const ResumeAnalyzer: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 批量解析列表 */}
+      {isBatchMode && batchFiles.length > 0 && (
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl animate-in fade-in slide-in-from-top-4 duration-500 mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="text-xl font-black text-slate-800">批量解析队列</h3>
+              <p className="text-xs text-slate-500 mt-1">已选择 {batchFiles.length} 份简历，待解析</p>
+            </div>
+            <div className="flex space-x-3">
+              <button 
+                onClick={clearBatchFiles}
+                className="px-4 py-2 text-slate-400 hover:text-rose-500 font-bold text-xs transition-colors"
+              >
+                清空列表
+              </button>
+              <button 
+                onClick={startBatchParse}
+                disabled={parsing || batchFiles.filter(f => f.status === 'pending' || f.status === 'failed').length === 0}
+                className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all disabled:opacity-50 shadow-lg shadow-indigo-100 flex items-center"
+              >
+                {parsing ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-play mr-2"></i>}
+                开始批量解析
+              </button>
+              <button 
+                onClick={handleBatchImport}
+                disabled={importing || parsing || batchFiles.filter(f => f.status === 'success').length === 0}
+                className="bg-emerald-600 text-white px-6 py-2 rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all disabled:opacity-50 shadow-lg shadow-emerald-100 flex items-center"
+              >
+                {importing ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-cloud-arrow-up mr-2"></i>}
+                一键入库 ({batchFiles.filter(f => f.status === 'success').length})
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {batchFiles.map((item, index) => (
+              <div key={index} className={`p-4 rounded-xl border transition-all ${
+                item.status === 'success' ? 'bg-emerald-50/50 border-emerald-100' : 
+                item.status === 'failed' ? 'bg-rose-50/50 border-rose-100' :
+                item.status === 'parsing' ? 'bg-indigo-50/50 border-indigo-100 animate-pulse' :
+                'bg-slate-50/50 border-slate-100'
+              }`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center space-x-3 overflow-hidden">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      item.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 
+                      item.status === 'failed' ? 'bg-rose-100 text-rose-600' :
+                      'bg-white text-slate-400'
+                    }`}>
+                      <i className={`fas ${
+                        item.file.name.endsWith('.pdf') ? 'fa-file-pdf' : 
+                        item.file.name.endsWith('.txt') ? 'fa-file-lines' : 'fa-file-word'
+                      }`}></i>
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="text-xs font-bold text-slate-700 truncate" title={item.file.name}>{item.file.name}</p>
+                      <p className="text-[10px] text-slate-400">{(item.file.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                  </div>
+                  {item.status === 'pending' && (
+                    <button 
+                      onClick={() => removeBatchFile(index)}
+                      className="text-slate-300 hover:text-rose-500 transition-colors"
+                    >
+                      <i className="fas fa-times-circle text-sm"></i>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                      item.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 
+                      item.status === 'failed' ? 'bg-rose-100 text-rose-700' :
+                      item.status === 'parsing' ? 'bg-indigo-100 text-indigo-700' :
+                      'bg-slate-200 text-slate-600'
+                    }`}>
+                      {item.status === 'pending' ? '等待中' : 
+                       item.status === 'parsing' ? '解析中...' : 
+                       item.status === 'success' ? '解析成功' : '解析失败'}
+                    </span>
+                    {item.status === 'success' && (
+                      <button 
+                        onClick={() => handleEditBatchItem(index)}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-all ${
+                          editingIndex === index 
+                          ? 'bg-indigo-600 text-white shadow-sm' 
+                          : 'bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50'
+                        }`}
+                      >
+                        <i className={`fas ${editingIndex === index ? 'fa-pen-nib' : 'fa-edit'} mr-1`}></i>
+                        {editingIndex === index ? '正在编辑' : '核对并修正'}
+                      </button>
+                    )}
+                  </div>
+                  {item.status === 'success' && item.result && (
+                    <span className="text-[10px] font-bold text-emerald-600">
+                      匹配度 {item.result.parsing_score || 0}%
+                    </span>
+                  )}
+                  {item.status === 'failed' && (
+                    <span className="text-[10px] font-bold text-rose-500">{item.error}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {candidate && (
         <div className="bg-white p-10 rounded-2xl border border-slate-200 shadow-lg animate-in fade-in slide-in-from-bottom-6 duration-700">
@@ -202,7 +551,11 @@ const ResumeAnalyzer: React.FC = () => {
                       {candidate.experience_list?.map((exp, i) => (
                         <li key={i} className="flex items-start group">
                           <div className="w-2 h-2 rounded-full bg-indigo-500 mt-2 mr-4 flex-shrink-0 group-hover:scale-125 transition-transform"></div>
-                          <span className="text-slate-600 text-sm leading-relaxed font-medium">{exp}</span>
+                          <div className="text-slate-600 text-sm leading-relaxed font-medium markdown-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {exp}
+                            </ReactMarkdown>
+                          </div>
                         </li>
                       ))}
                       {(!candidate.experience_list || candidate.experience_list.length === 0) && (
@@ -238,9 +591,11 @@ const ResumeAnalyzer: React.FC = () => {
                         <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                           <p className="text-slate-800 font-bold text-sm">{proj.name || (typeof proj === 'string' ? proj : '项目 ' + (i+1))}</p>
                           {proj.description && (
-                            <p className="text-slate-500 text-xs mt-2 leading-relaxed">
-                              {Array.isArray(proj.description) ? proj.description[0] : proj.description}
-                            </p>
+                            <div className="text-slate-500 text-xs mt-2 leading-relaxed markdown-content">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {Array.isArray(proj.description) ? proj.description[0] : proj.description}
+                              </ReactMarkdown>
+                            </div>
                           )}
                         </div>
                       ))
@@ -287,9 +642,11 @@ const ResumeAnalyzer: React.FC = () => {
                       rows={4}
                     />
                   ) : (
-                    <p className="text-slate-600 text-sm font-medium leading-relaxed bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100/30 italic">
-                      {candidate.summary || 'AI 正在分析该候选人的核心价值主张...'}
-                    </p>
+                    <div className="text-slate-600 text-sm font-medium leading-relaxed bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100/30 italic markdown-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {candidate.summary || 'AI 正在分析该候选人的核心价值主张...'}
+                      </ReactMarkdown>
+                    </div>
                   )}
                 </div>
               </section>
@@ -305,15 +662,22 @@ const ResumeAnalyzer: React.FC = () => {
               {isEditing ? '完成修正' : '修正解析数据'}
             </button>
             <div className="flex space-x-4">
-              <button className="px-6 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-all">
-                导出 PDF
-              </button>
-              <button 
-                onClick={handleSave}
-                className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
-              >
-                入库人才库
-              </button>
+              {editingIndex !== null ? (
+                <button 
+                  onClick={finishEditing}
+                  className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center"
+                >
+                  <i className="fas fa-check mr-2"></i>
+                  确认修改并返回列表
+                </button>
+              ) : (
+                <button 
+                  onClick={handleSave}
+                  className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+                >
+                  入库人才库
+                </button>
+              )}
             </div>
           </div>
         </div>

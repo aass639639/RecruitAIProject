@@ -17,12 +17,14 @@ class CandidateBase(BaseModel):
     position: Optional[str] = None
     years_of_experience: float = 0
     status: str = "none"
+    job_id: Optional[int] = None
 
 class CandidateCreate(CandidateBase):
     pass
 
 class CandidateUpdate(BaseModel):
     status: Optional[str] = None
+    job_id: Optional[int] = None
 
 class Candidate(CandidateBase):
     id: int

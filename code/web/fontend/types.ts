@@ -9,6 +9,7 @@ export interface Candidate {
   projects?: any[];
   skills: string[];
   summary: string;
+  raw_text?: string;
   // AI 解析增强字段
   education_summary?: string;
   experience_list?: string[];
@@ -20,15 +21,20 @@ export interface Candidate {
   position?: string; // 职位分类，如：研发、设计、算法、财务
   yearsOfExperience?: number; // 工作年限
   years_of_experience?: number; // 后端兼容字段
-  status?: string; // 候选人状态: none, hired, rejected
+  status?: string; // 候选人状态: none, hired, rejected, resigned, interviewing
+  job_id?: number; // 关联的 JD ID
 }
 
 export interface JobDescription {
-  id: string;
+  id: number;
   title: string;
-  company: string;
   description: string;
-  requirements: string[];
+  requirement_count: number;
+  current_hired_count: number;
+  is_active: boolean;
+  category?: string;
+  created_at?: string;
+  close_reason?: string;
 }
 
 export interface Metric {
@@ -48,6 +54,7 @@ export interface InterviewQuestion {
   source: string;
   score?: number; // 面试官评分 (1-5)
   notes?: string; // 针对该题目的面试记录
+  answer?: string; // 候选人回答内容
 }
 
 export interface InterviewPlan {
@@ -63,16 +70,25 @@ export interface User {
   department?: string;
 }
 
+export interface AiEvaluation {
+  technical_evaluation: string;
+  logical_evaluation: string;
+  clarity_evaluation: string;
+  comprehensive_suggestion: string;
+}
+
 export interface Interview {
   id: number;
   candidate_id: number;
   interviewer_id: number;
   admin_id: number;
-  status: 'pending' | 'accepted' | 'preparing' | 'rejected' | 'in_progress' | 'completed' | 'cancelled';
+  job_id?: number;
+  status: 'pending' | 'accepted' | 'preparing' | 'rejected' | 'in_progress' | 'completed' | 'cancelled' | 'pending_decision';
   questions?: InterviewQuestion[];
   evaluation_criteria?: string[];
   notes?: string;
   hiring_decision?: string; // hire, pass, reject
+  ai_evaluation?: AiEvaluation;
   interview_time?: string;
   created_at: string;
   updated_at: string;

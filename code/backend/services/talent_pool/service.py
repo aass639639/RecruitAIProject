@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from crud import candidate as crud_candidate
+from crud import job_description as crud_jd
 from schemas import candidate as schema_candidate
+from schemas import job_description as schema_jd
 
 class TalentPoolService:
     def get_candidates(
@@ -10,10 +12,12 @@ class TalentPoolService:
         skip: int = 0,
         limit: int = 100,
         search: Optional[str] = None,
-        position: Optional[str] = None
+        position: Optional[str] = None,
+        job_id: Optional[int] = None,
+        status: Optional[str] = None
     ):
         return crud_candidate.get_candidates(
-            db, skip=skip, limit=limit, search=search, position=position
+            db, skip=skip, limit=limit, search=search, position=position, job_id=job_id, status=status
         )
 
     def get_candidate(self, db: Session, candidate_id: int):
@@ -33,9 +37,29 @@ class TalentPoolService:
         return db_candidate, None
 
     def update_candidate(self, db: Session, candidate_id: int, candidate_update: schema_candidate.CandidateUpdate):
+        # 获取原有数据以检查状态变化
+        old_candidate = crud_candidate.get_candidate(db, candidate_id)
+        if not old_candidate:
+            return None
+            
+        old_status = old_candidate.status
+        update_dict = candidate_update.model_dump(exclude_unset=True)
+        new_status = update_dict.get("status")
+        job_id = update_dict.get("job_id") or old_candidate.job_id
+
+        # 执行更新
         db_candidate = crud_candidate.update_candidate(
-            db, candidate_id=candidate_id, candidate_data=candidate_update.model_dump(exclude_unset=True)
+            db, candidate_id=candidate_id, candidate_data=update_dict
         )
+
+        # 逻辑：如果状态变为 hired，且有关联 JD，则增加 JD 的已入职人数
+        if new_status == "hired" and old_status != "hired" and job_id:
+            jd = crud_jd.get_job_description(db, job_id)
+            if jd:
+                crud_jd.update_job_description(db, job_id, schema_jd.JobDescriptionUpdate(
+                    current_hired_count=jd.current_hired_count + 1
+                ))
+
         return db_candidate
 
     def delete_candidate(self, db: Session, candidate_id: int):

@@ -8,6 +8,7 @@ class InterviewBase(BaseModel):
     candidate_id: int
     interviewer_id: int
     admin_id: int
+    job_id: Optional[int] = None
     status: str = "pending"
     interview_time: Optional[datetime] = None
 
@@ -21,6 +22,7 @@ class InterviewUpdate(BaseModel):
     notes: Optional[str] = None
     hiring_decision: Optional[str] = None
     interview_time: Optional[datetime] = None
+    ai_evaluation: Optional[dict] = None
 
 class Interview(InterviewBase):
     id: int
@@ -29,6 +31,7 @@ class Interview(InterviewBase):
     notes: Optional[str] = None
     hiring_decision: Optional[str] = None
     interview_time: Optional[datetime] = None
+    ai_evaluation: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
     candidate: Optional[Candidate] = None

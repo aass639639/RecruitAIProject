@@ -25,15 +25,44 @@ export const geminiService = {
   },
 
   /**
-   * 进行人岗匹配分析 (预留，后续后端实现)
+   * 上传简历文件并解析
    */
-  async matchCandidate(candidate: Candidate, jd: string): Promise<{ score: number; analysis: string }> {
+  async uploadResume(file: File): Promise<Partial<Candidate>> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post('/resume/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error("上传并解析简历失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 进行人岗匹配分析
+   */
+  async matchCandidate(candidate: Candidate, jd: string): Promise<{ 
+    score: number; 
+    analysis: string;
+    matching_points: string[];
+    mismatched_points: string[];
+  }> {
     try {
       const response = await apiClient.post('/match/analyze', { candidate, jd });
       return response.data;
     } catch (error) {
       console.error("匹配分析失败:", error);
-      return { score: 0, analysis: "数据处理异常" };
+      return { 
+        score: 0, 
+        analysis: "数据处理异常",
+        matching_points: [],
+        mismatched_points: []
+      };
     }
   },
 
@@ -107,7 +136,7 @@ export const geminiService = {
       });
       return response.data;
     } catch (error) {
-      console.error("手动题目补充失败:", error);
+      console.error("手动录入题目补充失败:", error);
       throw error;
     }
   },
@@ -129,6 +158,97 @@ export const geminiService = {
       return response.data.evaluation_criteria;
     } catch (error) {
       console.error("刷新评分维度失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 获取所有知识库条目
+   */
+  async getKnowledgeBase(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/knowledge/');
+      return response.data;
+    } catch (error) {
+      console.error("获取知识库失败:", error);
+      return [];
+    }
+  },
+
+  /**
+   * 知识库 AI 问答
+   */
+  async chatWithKnowledge(question: string, session_id?: string): Promise<{ answer: string; source_ids: string[] }> {
+    try {
+      const response = await apiClient.post('/knowledge/chat', { question, session_id });
+      return response.data;
+    } catch (error) {
+      console.error("知识库问答失败:", error);
+      return { answer: "抱歉，系统暂时无法回答您的问题。", source_ids: [] };
+    }
+  },
+
+  /**
+   * 获取 AI 面试官提示
+   */
+  async getKnowledgeTip(title: string, content: string): Promise<string> {
+    try {
+      const response = await apiClient.post('/knowledge/tip', { title, content });
+      return response.data.tip;
+    } catch (error) {
+      console.error("获取 AI 提示失败:", error);
+      return "针对该岗位的考察，建议结合候选人的项目经历进行深入提问。";
+    }
+  },
+
+  /**
+   * 录入新知识
+   */
+  async addKnowledge(knowledge: { title: string; category: string; content: string; tags: string[] }): Promise<any> {
+    try {
+      const response = await apiClient.post('/knowledge/', knowledge);
+      return response.data;
+    } catch (error) {
+      console.error("录入新知识失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 获取所有候选人
+   */
+  async getCandidates(): Promise<Candidate[]> {
+    try {
+      const response = await apiClient.get('/candidates/');
+      return response.data;
+    } catch (error) {
+      console.error("获取候选人列表失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 获取所有职位描述 (JD)
+   */
+  async getJobDescriptions(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/job-descriptions/');
+      return response.data;
+    } catch (error) {
+      console.error("获取职位列表失败:", error);
+      return [];
+    }
+  },
+
+  /**
+   * AI 智能生成或优化 JD
+   */
+  async smartGenerateJD(inputText: string): Promise<{ title: string; description: string }> {
+    try {
+      const response = await apiClient.post('/job-descriptions/smart-generate', { input_text: inputText });
+      return response.data;
+    } catch (error) {
+      console.error("AI 智能生成 JD 失败:", error);
       throw error;
     }
   }

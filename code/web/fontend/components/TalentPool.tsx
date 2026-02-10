@@ -1,15 +1,25 @@
 
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import axios from 'axios';
-import { Candidate, User } from '../types';
+import { Candidate, User, JobDescription } from '../types';
 
 interface TalentPoolProps {
   onSelectCandidate: (candidate: Candidate, interviewId?: number) => void;
   currentUser: User | null;
   onViewEvaluations?: (candidateId?: string) => void;
+  preselectedCandidateId?: string | null;
+  onClearPreselect?: () => void;
 }
 
-const TalentPool: React.FC<TalentPoolProps> = ({ onSelectCandidate, currentUser, onViewEvaluations }) => {
+const TalentPool: React.FC<TalentPoolProps> = ({ 
+  onSelectCandidate, 
+  currentUser, 
+  onViewEvaluations,
+  preselectedCandidateId,
+  onClearPreselect
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [positionFilter, setPositionFilter] = useState('全部');
   const [expFilter, setExpFilter] = useState('全部');
@@ -21,10 +31,10 @@ const TalentPool: React.FC<TalentPoolProps> = ({ onSelectCandidate, currentUser,
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [interviews, setInterviews] = useState<any[]>([]);
 
-  const handleUpdateCandidateStatus = async (candidateId: string, status: string) => {
+  const handleUpdateCandidateStatus = async (candidateId: string, status: string, job_id?: number) => {
     console.log("谁调用的")
     try {
-      await axios.put(`http://localhost:8000/api/v1/candidates/${candidateId}`, { status });
+      await axios.put(`http://localhost:8000/api/v1/candidates/${candidateId}`, { status, job_id });
       
       // 同步更新本地状态，确保 UI 立即响应
       setTalents(prev => prev.map(t => t.id === candidateId ? { ...t, status } : t));
@@ -98,6 +108,16 @@ const TalentPool: React.FC<TalentPoolProps> = ({ onSelectCandidate, currentUser,
     fetchInterviewers();
     fetchInterviews();
   }, []);
+
+  useEffect(() => {
+    if (preselectedCandidateId && talents.length > 0) {
+      const candidate = talents.find(t => t.id === preselectedCandidateId);
+      if (candidate) {
+        setViewingCandidate(candidate);
+        onClearPreselect?.();
+      }
+    }
+  }, [preselectedCandidateId, talents]);
 
   const handleAssignInterview = async (candidateId: string) => {
     if (!assigningTo) {
@@ -383,7 +403,7 @@ interface CandidateDetailViewProps {
   currentUser: User | null;
   onBack: () => void;
   onViewEvaluations: (candidateId?: string) => void;
-  onUpdateStatus: (candidateId: string, status: string) => void;
+  onUpdateStatus: (candidateId: string, status: string, job_id?: number) => void;
   onResign: (candidateId: string) => void;
   onAssignInterview: () => void;
   onSelectCandidate: (candidate: Candidate, interviewId?: number) => void;
@@ -400,6 +420,29 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
   onAssignInterview,
   onSelectCandidate
 }) => {
+  const [showHiringModal, setShowHiringModal] = useState(false);
+  const [jds, setJds] = useState<JobDescription[]>([]);
+  const [selectedJdId, setSelectedJdId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (showHiringModal) {
+      axios.get('http://localhost:8000/api/v1/job-descriptions/')
+        .then(res => {
+          setJds(res.data.filter((jd: JobDescription) => jd.is_active));
+        })
+        .catch(err => console.error('Error fetching JDs:', err));
+    }
+  }, [showHiringModal]);
+
+  const handleConfirmHiring = () => {
+    if (!selectedJdId) {
+      alert('请选择要入职的职位');
+      return;
+    }
+    onUpdateStatus(candidate.id, 'hired', selectedJdId);
+    setShowHiringModal(false);
+  };
+
   const candidateInterviews = interviews.filter(i => String(i.candidate_id) === String(candidate.id));
   const completedInterviews = candidateInterviews.filter(i => i.status === 'completed');
   const activeInterview = candidateInterviews.find(i => 
@@ -449,7 +492,7 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                  candidate.status === 'none' && (
                   <>
                     <button 
-                      onClick={() => onUpdateStatus(candidate.id, 'hired')}
+                      onClick={() => setShowHiringModal(true)}
                       className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-all shadow-md shadow-emerald-100"
                     >
                       确认录用
@@ -474,14 +517,14 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                     离职
                   </button>
                 )}
-                {(candidate.status === 'none' || candidate.status === 'resigned' || candidate.status === 'rejected') && !activeInterview && (
+                {/* {(candidate.status === 'none' || candidate.status === 'resigned' || candidate.status === 'rejected') && !activeInterview && (
                   <button 
                     onClick={onAssignInterview}
                     className="bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
                   >
                     {candidate.status === 'resigned' ? '重新分配面试' : '分配面试官'}
                   </button>
-                )}
+                )} */}
               </>
             )
           )}
@@ -569,8 +612,10 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-2"></span>
               个人简介
             </h3>
-            <div className="text-slate-600 leading-relaxed bg-slate-50/50 p-6 rounded-xl border border-slate-100 italic">
-              {candidate.summary}
+            <div className="text-slate-600 leading-relaxed bg-slate-50/50 p-6 rounded-xl border border-slate-100 italic markdown-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {candidate.summary}
+              </ReactMarkdown>
             </div>
           </section>
 
@@ -598,16 +643,26 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                 candidate.experience.map((exp: any, idx: number) => (
                   <div key={idx} className="flex items-start space-x-3 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
                     <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full mt-1.5 flex-shrink-0"></div>
-                    <p className="text-sm text-slate-600 leading-relaxed font-medium">
-                      {typeof exp === 'string' ? exp : (
+                    <div className="text-sm text-slate-600 leading-relaxed font-medium markdown-content">
+                      {typeof exp === 'string' ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {exp}
+                        </ReactMarkdown>
+                      ) : (
                         <>
                           <span className="font-bold text-slate-800">{exp.company || ''}</span>
                           {exp.position && <span className="mx-2 text-indigo-500">· {exp.position}</span>}
                           {exp.period && <span className="ml-auto text-xs text-slate-400">({exp.period})</span>}
-                          {exp.description && <p className="mt-2 text-xs text-slate-500">{exp.description}</p>}
+                          {exp.description && (
+                            <div className="mt-2 text-xs text-slate-500 markdown-content">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {exp.description}
+                              </ReactMarkdown>
+                            </div>
+                          )}
                         </>
                       )}
-                    </p>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -630,17 +685,23 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                       {proj.period && <span className="text-xs text-slate-400">({proj.period})</span>}
                     </div>
                     {proj.role && <p className="text-xs font-semibold text-indigo-500 mb-2">{proj.role}</p>}
-                    <div className="text-sm text-slate-600 leading-relaxed">
+                    <div className="text-sm text-slate-600 leading-relaxed markdown-content">
                       {typeof proj === 'string' ? null : (
                         <>
                           {Array.isArray(proj.description) ? (
                             <ul className="list-disc list-inside space-y-1">
                               {proj.description.map((item: string, i: number) => (
-                                <li key={i}>{item}</li>
+                                <li key={i}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {item}
+                                  </ReactMarkdown>
+                                </li>
                               ))}
                             </ul>
                           ) : (
-                            <p>{proj.description}</p>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {proj.description}
+                            </ReactMarkdown>
                           )}
                           {proj.technologies && proj.technologies.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -661,6 +722,52 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* 录用确认模态框 */}
+      {showHiringModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-slate-800">确认录用</h3>
+              <button onClick={() => setShowHiringModal(false)} className="text-slate-400 hover:text-slate-600">
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700">请选择入职职位 (JD)</label>
+                <select 
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={selectedJdId || ''}
+                  onChange={(e) => setSelectedJdId(Number(e.target.value))}
+                >
+                  <option value="">-- 请选择职位 --</option>
+                  {jds.map(jd => (
+                    <option key={jd.id} value={jd.id}>
+                      {jd.title} (剩余需求: {Math.max(0, jd.requirement_count - jd.current_hired_count)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex space-x-4">
+                <button 
+                  onClick={() => setShowHiringModal(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleConfirmHiring}
+                  disabled={!selectedJdId}
+                  className="flex-1 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 transition-all"
+                >
+                  确认录用
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

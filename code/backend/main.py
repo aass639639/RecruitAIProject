@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.v1.api import api_router
 from core.config import settings
 from database import engine, Base
-from models import candidate, user, interview # 确保模型被加载
+from models import candidate, user, interview, knowledge, job_description # 确保模型被加载
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)

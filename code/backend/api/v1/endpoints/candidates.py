@@ -13,10 +13,12 @@ def read_candidates(
     limit: int = 100,
     search: Optional[str] = None,
     position: Optional[str] = None,
+    job_id: Optional[int] = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     return talent_pool_service.get_candidates(
-        db, skip=skip, limit=limit, search=search, position=position
+        db, skip=skip, limit=limit, search=search, position=position, job_id=job_id, status=status
     )
 
 @router.post("/", response_model=schema_candidate.Candidate)

@@ -1,24 +1,28 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import Dashboard from './components/Dashboard';
 import ResumeAnalyzer from './components/ResumeAnalyzer';
-import JobMatcher from './components/JobMatcher';
 import InterviewAssistant from './components/InterviewAssistant';
 import TalentPool from './components/TalentPool';
 import MyInterviews from './components/MyInterviews';
 import InterviewEvaluations from './components/InterviewEvaluations';
+import KnowledgeBase from './components/KnowledgeBase';
+import JobDescriptionManager from './components/JobDescriptionManager';
+import Dashboard from './components/Dashboard';
 import { Candidate, User } from './types';
 
-type View = 'dashboard' | 'parse' | 'match' | 'interview' | 'talent' | 'my-interviews' | 'evaluations';
+type View = 'dashboard' | 'parse' | 'interview' | 'talent' | 'my-interviews' | 'evaluations' | 'knowledge-base' | 'jd-management';
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [selectedInterviewId, setSelectedInterviewId] = useState<number | null>(null);
+  const [selectedInterviewIdForReport, setSelectedInterviewIdForReport] = useState<number | null>(null);
   const [preselectedCandidateId, setPreselectedCandidateId] = useState<string | null>(null);
+  const [preselectedJdId, setPreselectedJdId] = useState<number | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [navigationStack, setNavigationStack] = useState<View[]>([]);
 
   useEffect(() => {
     fetchUsers();
@@ -37,12 +41,13 @@ const App: React.FC = () => {
   };
 
   const navItems = [
-    { id: 'dashboard', label: '控制台', icon: 'fa-chart-pie', roles: ['admin', 'interviewer'] },
-    { id: 'parse', label: '智能简历解析', icon: 'fa-wand-magic-sparkles', roles: ['admin'] },
-    { id: 'match', label: '精准人岗匹配', icon: 'fa-user-check', roles: ['admin'] },
-    { id: 'talent', label: '智能人才库', icon: 'fa-database', roles: ['admin'] },
+    { id: 'dashboard', label: '首页', icon: 'fa-house', roles: ['admin', 'interviewer'] },
+    { id: 'jd-management', label: 'JD管理', icon: 'fa-briefcase', roles: ['admin'] },
+    { id: 'talent', label: '人才库', icon: 'fa-users', roles: ['admin'] },
+    { id: 'parse', label: '简历解析', icon: 'fa-file-import', roles: ['admin'] },
     { id: 'my-interviews', label: '我的面试', icon: 'fa-calendar-check', roles: ['interviewer'] },
     { id: 'evaluations', label: '面试评价', icon: 'fa-file-signature', roles: ['admin'] },
+    { id: 'knowledge-base', label: '知识库', icon: 'fa-book', roles: ['admin', 'interviewer'] },
   ];
 
   const filteredNavItems = navItems.filter(item => 
@@ -55,20 +60,91 @@ const App: React.FC = () => {
     setActiveView('interview');
   };
 
+  const handleFinishInterview = () => {
+    setSelectedCandidate(null);
+    setSelectedInterviewId(null);
+    if (currentUser?.role === 'interviewer') {
+      setActiveView('my-interviews');
+    } else {
+      setActiveView('evaluations');
+    }
+  };
+
+  const navigateTo = (view: View) => {
+    setNavigationStack(prev => [...prev, activeView]);
+    setActiveView(view);
+  };
+
+  const goBack = () => {
+    if (navigationStack.length > 0) {
+      const prevView = navigationStack[navigationStack.length - 1];
+      setNavigationStack(prev => prev.slice(0, -1));
+      setActiveView(prevView);
+    }
+  };
+
   const renderContent = () => {
     switch (activeView) {
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard': return <Dashboard currentUser={currentUser} onNavigate={handleNavClick} />;
       case 'parse': return <ResumeAnalyzer />;
-      case 'match': return <JobMatcher onStartInterview={handleStartInterview} />;
-      case 'interview': return <InterviewAssistant candidate={selectedCandidate} interviewId={selectedInterviewId} />;
-      case 'talent': return <TalentPool onSelectCandidate={handleStartInterview} currentUser={currentUser} onViewEvaluations={(cid) => {
-        if (cid) setPreselectedCandidateId(cid);
-        setActiveView('evaluations');
-      }} />;
+      case 'interview': return <InterviewAssistant candidate={selectedCandidate} interviewId={selectedInterviewId} onFinish={handleFinishInterview} />;
+      case 'talent': return <TalentPool 
+        onSelectCandidate={handleStartInterview} 
+        currentUser={currentUser} 
+        preselectedCandidateId={preselectedCandidateId}
+        onClearPreselect={() => setPreselectedCandidateId(null)}
+        onViewEvaluations={(cid) => {
+          if (cid) setPreselectedCandidateId(cid);
+          navigateTo('evaluations');
+        }} 
+      />;
       case 'my-interviews': return <MyInterviews onStartInterview={handleStartInterview} currentUser={currentUser} />;
-      case 'evaluations': return <InterviewEvaluations currentUser={currentUser} preselectedCandidateId={preselectedCandidateId} onClearPreselect={() => setPreselectedCandidateId(null)} />;
-      default: return <Dashboard />;
+      case 'evaluations': return <InterviewEvaluations 
+        currentUser={currentUser} 
+        preselectedCandidateId={preselectedCandidateId} 
+        onClearPreselect={() => setPreselectedCandidateId(null)}
+        initialSelectedInterviewId={selectedInterviewIdForReport}
+        onClearInitialInterview={() => setSelectedInterviewIdForReport(null)}
+        onBack={navigationStack.length > 0 ? goBack : undefined}
+      />;
+      case 'jd-management': return <JobDescriptionManager 
+        currentUser={currentUser}
+        initialJdId={preselectedJdId}
+        onClearInitialJd={() => setPreselectedJdId(null)}
+        onViewEvaluations={(cid, jid) => {
+          if (cid) setPreselectedCandidateId(cid);
+          if (jid) setPreselectedJdId(jid);
+          navigateTo('evaluations');
+        }}
+        onViewCandidate={(cid) => {
+          if (cid) setPreselectedCandidateId(cid);
+          navigateTo('talent');
+        }}
+      />;
+      case 'knowledge-base': return <KnowledgeBase />;
+      default: return <TalentPool onSelectCandidate={handleStartInterview} currentUser={currentUser} onViewEvaluations={(cid) => {
+        if (cid) setPreselectedCandidateId(cid);
+        navigateTo('evaluations');
+      }} />;
     }
+  };
+
+  const handleNavClick = (view: View, data?: any) => {
+    setNavigationStack([]); // Clear history when clicking main nav
+    if (view === 'evaluations' && data?.interviewId) {
+      setSelectedInterviewIdForReport(data.interviewId);
+    } else {
+      setSelectedInterviewIdForReport(null);
+    }
+    
+    if (view === 'jd-management' && data?.jdId) {
+      setPreselectedJdId(data.jdId);
+    } else if (view !== 'evaluations') {
+      // 如果不是跳转到评价页（评价页可能需要保留 preselectedJdId），则清除
+      // 实际上这里逻辑可以简化
+    }
+
+    setActiveView(view);
   };
 
   return (
@@ -87,7 +163,7 @@ const App: React.FC = () => {
             {filteredNavItems.map((item) => (
               <button
                 key={item.id}
-                onClick={() => setActiveView(item.id as View)}
+                onClick={() => handleNavClick(item.id as View)}
                 className={`w-full flex items-center space-x-4 px-5 py-4 rounded-xl text-sm font-semibold transition-all duration-200 ${
                   activeView === item.id 
                     ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-500/30' 

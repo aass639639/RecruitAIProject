@@ -24,3 +24,4 @@ class Candidate(Base):
     position = Column(String, index=True, nullable=True) # 职位分类
     years_of_experience = Column(Float, default=0) # 工作年限
     status = Column(String, default="none") # 状态: none (无), hired (已录用), rejected (已拒绝), resigned (已离职), interviewing (面试中)
+    job_id = Column(Integer, nullable=True) # 关联的 JD ID

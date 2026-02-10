@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import axios from 'axios';
-import { Interview, User, Candidate } from '../types';
+import { Interview, User, Candidate, JobDescription } from '../types';
 
 interface InterviewEvaluationsProps {
   currentUser: User | null;
   preselectedCandidateId?: string | null;
   onClearPreselect?: () => void;
+  initialSelectedInterviewId?: number | null;
+  onClearInitialInterview?: () => void;
+  onBack?: () => void;
 }
 
 interface GroupedEvaluation {
@@ -14,11 +19,23 @@ interface GroupedEvaluation {
   status: 'hired' | 'rejected' | 'interviewing' | 'not_started';
 }
 
-const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser, preselectedCandidateId, onClearPreselect }) => {
+const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ 
+  currentUser, 
+  preselectedCandidateId, 
+  onClearPreselect, 
+  initialSelectedInterviewId,
+  onClearInitialInterview,
+  onBack 
+}) => {
   const [groupedEvaluations, setGroupedEvaluations] = useState<GroupedEvaluation[]>([]);
+  const [jds, setJds] = useState<JobDescription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
+  
+  // 录用弹窗状态
+  const [hiringCandidate, setHiringCandidate] = useState<{candidate: Candidate, jobId: number} | null>(null);
+  const [showHireModal, setShowHireModal] = useState(false);
   
   // 搜索、筛选和排序状态
   const [searchTerm, setSearchTerm] = useState('');
@@ -31,21 +48,40 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
 
   useEffect(() => {
     if (preselectedCandidateId && groupedEvaluations.length > 0) {
-      const candidateIdNum = parseInt(preselectedCandidateId);
       const group = groupedEvaluations.find(g => String(g.candidate.id) === String(preselectedCandidateId));
       if (group) {
-        setSelectedCandidateId(candidateIdNum);
+        setSelectedCandidateId(preselectedCandidateId);
         // Clear search term and filter to show the candidate
         setSearchTerm(group.candidate.name);
       }
     }
   }, [preselectedCandidateId, groupedEvaluations]);
 
+  useEffect(() => {
+    if (initialSelectedInterviewId && groupedEvaluations.length > 0) {
+      // 在所有分组中寻找该面试 ID
+      for (const group of groupedEvaluations) {
+        const interview = group.interviews.find(i => i.id === initialSelectedInterviewId);
+        if (interview) {
+          setSelectedCandidateId(String(group.candidate.id));
+          setSelectedInterview(interview);
+          onClearInitialInterview?.();
+          break;
+        }
+      }
+    }
+  }, [initialSelectedInterviewId, groupedEvaluations, onClearInitialInterview]);
+
   const fetchEvaluations = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:8000/api/v1/interviews/');
-      const allInterviews: Interview[] = response.data;
+      const [interviewsRes, jdsRes] = await Promise.all([
+        axios.get('http://localhost:8000/api/v1/interviews/'),
+        axios.get('http://localhost:8000/api/v1/job-descriptions/')
+      ]);
+      
+      const allInterviews: Interview[] = interviewsRes.data;
+      setJds(jdsRes.data);
       
       // Group by candidate
       const groups: { [key: number]: GroupedEvaluation } = {};
@@ -70,7 +106,7 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
         // Determine status based on the latest hiring decisions or overall interview status
         const hasHired = group.interviews.some(i => i.hiring_decision === 'hire');
         const allCompleted = group.interviews.every(i => i.status === 'completed');
-        const anyInProgress = group.interviews.some(i => i.status === 'in_progress' || i.status === 'accepted' || i.status === 'preparing');
+        const anyInProgress = group.interviews.some(i => ['in_progress', 'accepted', 'preparing', 'pending_decision'].includes(i.status));
         const lastDecision = group.interviews[0]?.hiring_decision;
 
         if (hasHired) group.status = 'hired';
@@ -89,9 +125,66 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
     }
   };
 
+  const getDefaultJobToHire = (group: GroupedEvaluation) => {
+    // 只有当最新一轮面试结果是建议录用时，才返回该岗位 ID
+    const latestInterview = group.interviews[0];
+    if (latestInterview && latestInterview.hiring_decision === 'hire' && latestInterview.job_id) {
+      return latestInterview.job_id;
+    }
+    return null;
+  };
+
+  const canHireCandidate = (group: GroupedEvaluation) => {
+    const candidate = group.candidate;
+    const latestInterview = group.interviews[0];
+    const targetJobId = latestInterview?.job_id;
+
+    // 0. 检查岗位是否已满
+    const targetJd = targetJobId ? jds.find(j => j.id === targetJobId) : null;
+    const isNotFull = targetJd ? targetJd.current_hired_count < targetJd.requirement_count : true;
+
+    // 1. 最新一轮面试结果必须是建议录用
+    const isRecommended = latestInterview?.hiring_decision === 'hire';
+    
+    // 2. 员工不能是已入职状态
+    const isNotHired = candidate.status !== 'hired';
+    
+    // 3. 针对某个人面试某个岗位只有一次入职机会。如果员工针对该岗位已离职，则不能再入职
+    // 逻辑：如果状态是离职，且离职关联的岗位就是当前面试的岗位，则禁止入职
+    const isNotResignedFromThisJob = !(candidate.status === 'resigned' && candidate.job_id === targetJobId);
+
+    return isRecommended && isNotHired && isNotResignedFromThisJob && isNotFull;
+  };
+
+  const handleHire = async () => {
+    if (!hiringCandidate) return;
+    
+    try {
+      await axios.put(`http://localhost:8000/api/v1/candidates/${hiringCandidate.candidate.id}`, {
+        status: 'hired',
+        job_id: hiringCandidate.jobId
+      });
+      
+      // 刷新数据
+      fetchEvaluations();
+      setShowHireModal(false);
+      setHiringCandidate(null);
+      
+      alert(`已成功录用候选人 ${hiringCandidate.candidate.name}`);
+    } catch (error) {
+      console.error('Error hiring candidate:', error);
+      alert('录用操作失败，请重试');
+    }
+  };
+
   // 过滤和排序逻辑
   const filteredAndSortedEvaluations = groupedEvaluations
     .filter(group => {
+      // 如果有预选候选人，强制只显示该候选人
+      if (preselectedCandidateId) {
+        return String(group.candidate.id) === String(preselectedCandidateId);
+      }
+      
       // 搜索过滤
       const matchesSearch = group.candidate.name.toLowerCase().includes(searchTerm.toLowerCase());
       
@@ -113,8 +206,16 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
 
   if (loading) return <div className="flex justify-center p-20"><i className="fas fa-spinner fa-spin text-3xl text-indigo-600"></i></div>;
 
+  const getJobTitle = (jobId?: number) => {
+    if (!jobId) return null;
+    const jd = jds.find(j => j.id === jobId);
+    return jd ? jd.title : null;
+  };
+
   // Detail View for a specific Interview
   if (selectedInterview) {
+    const jobTitle = getJobTitle(selectedInterview.job_id) || selectedInterview.candidate?.position || '未知岗位';
+    
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <header className="flex items-center justify-between">
@@ -127,11 +228,44 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
             </button>
             <div>
               <h1 className="text-2xl font-black text-slate-800">面试详情报告</h1>
-              <p className="text-sm text-slate-500 mt-1">
-                面试官: <span className="text-indigo-600 font-bold">{selectedInterview.interviewer?.full_name}</span> · 
-                面试日期: {new Date(selectedInterview.updated_at).toLocaleDateString()}
-              </p>
+              <div className="flex items-center space-x-2 mt-1">
+                <p className="text-sm text-slate-500">
+                  面试岗位: <span className="text-indigo-600 font-bold">{jobTitle}</span>
+                </p>
+                <span className="text-slate-300">·</span>
+                <p className="text-sm text-slate-500">
+                  面试官: <span className="text-indigo-600 font-bold">{selectedInterview.interviewer?.full_name}</span>
+                </p>
+                <span className="text-slate-300">·</span>
+                <p className="text-sm text-slate-500">
+                  面试日期: {new Date(selectedInterview.updated_at).toLocaleDateString()}
+                </p>
+              </div>
             </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            {(selectedInterview.hiring_decision === 'hire' || selectedInterview.hiring_decision === 'pass') && 
+             selectedInterview.candidate?.status !== 'hired' && (
+              <button 
+                onClick={() => {
+                  setHiringCandidate({
+                    candidate: selectedInterview.candidate!,
+                    jobId: selectedInterview.job_id!
+                  });
+                  setShowHireModal(true);
+                }}
+                className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-black hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center space-x-2"
+              >
+                <i className="fas fa-user-plus"></i>
+                <span>一键录用</span>
+              </button>
+            )}
+            <button 
+              onClick={() => setSelectedInterview(null)}
+              className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+            >
+              返回列表
+            </button>
           </div>
         </header>
 
@@ -175,13 +309,72 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
 
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">面试官总结</h3>
-              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-sm text-amber-900 leading-relaxed min-h-[150px] whitespace-pre-wrap">
-                {selectedInterview.notes || "未填写面试笔记"}
+              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-sm text-amber-900 leading-relaxed min-h-[150px] markdown-content">
+                {selectedInterview.notes ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {selectedInterview.notes}
+                  </ReactMarkdown>
+                ) : "未填写面试笔记"}
               </div>
             </div>
           </div>
 
           <div className="lg:col-span-2 space-y-6">
+            {selectedInterview.ai_evaluation && (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">AI 智能面试评估</h3>
+                  <div className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black flex items-center">
+                    <i className="fas fa-robot mr-2"></i> AI 自动生成
+                  </div>
+                </div>
+                
+                <div className="space-y-6">
+                  <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
+                    <p className="text-[10px] font-black text-indigo-400 uppercase mb-2 tracking-wider">综合建议与决策</p>
+                    <div className="text-sm text-indigo-900 font-medium leading-relaxed markdown-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {selectedInterview.ai_evaluation.comprehensive_suggestion}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
+                        <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
+                      </p>
+                      <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedInterview.ai_evaluation.technical_evaluation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
+                        <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
+                      </p>
+                      <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedInterview.ai_evaluation.logical_evaluation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
+                        <i className="fas fa-brain mr-2 text-indigo-400"></i> 思路清晰度
+                      </p>
+                      <div className="text-xs text-slate-600 leading-relaxed markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedInterview.ai_evaluation.clarity_evaluation}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">面试题目详情</h3>
               <div className="space-y-8">
@@ -206,10 +399,24 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
                       )}
                     </div>
                     <h4 className="text-base font-bold text-slate-800 mb-2">{q.question}</h4>
+                    {q.answer && (
+                      <div className="mt-3 p-4 bg-indigo-50/30 rounded-xl border border-indigo-100/50 markdown-content">
+                        <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">候选人回答</p>
+                        <div className="text-sm text-slate-700 leading-relaxed">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {q.answer}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
                     {q.notes && (
-                      <div className="mt-4 p-4 bg-white rounded-xl border border-slate-100">
-                        <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">评价</p>
-                        <p className="text-sm text-slate-700 italic">{q.notes}</p>
+                      <div className="mt-4 p-4 bg-white rounded-xl border border-slate-100 markdown-content">
+                        <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">面试官评价</p>
+                        <div className="text-sm text-slate-700 italic">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {q.notes}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -225,12 +432,36 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-800">面试评价管理</h1>
-          <p className="text-sm text-slate-500 mt-1">查看所有候选人的面试评价与录用建议</p>
+        <div className="flex items-center space-x-4">
+          {onBack && (
+            <button 
+              onClick={onBack}
+              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-100 hover:bg-indigo-50 transition-all group"
+              title="返回上级页面"
+            >
+              <i className="fas fa-arrow-left group-hover:-translate-x-0.5 transition-transform"></i>
+            </button>
+          )}
+          <div>
+            <h1 className="text-2xl font-black text-slate-800">面试评价管理</h1>
+            <p className="text-sm text-slate-500 mt-1">查看所有候选人的面试评价与录用建议</p>
+          </div>
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
+          {preselectedCandidateId && (
+            <div className="flex items-center bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl border border-indigo-100 animate-in zoom-in duration-300">
+              <span className="text-sm font-bold mr-2">正在查看特定候选人</span>
+              <button 
+                onClick={onClearPreselect}
+                className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center hover:bg-indigo-700 transition-colors"
+                title="清除筛选"
+              >
+                <i className="fas fa-times text-[10px]"></i>
+              </button>
+            </div>
+          )}
+          
           <div className="relative">
             <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
             <input 
@@ -291,19 +522,37 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
                         group.status === 'interviewing' ? 'bg-indigo-50 text-indigo-600' :
                         'bg-slate-100 text-slate-500'
                       }`}>
-                        {group.status === 'hired' ? '建议录用' :
-                         group.status === 'rejected' ? '不建议录用' :
+                        {group.status === 'hired' ? '录用中' :
+                         group.status === 'rejected' ? '未录用' :
                          group.status === 'interviewing' ? '面试中' : '未开始'}
                       </span>
                     </div>
                     <p className="text-sm text-slate-400 font-medium">
-                      {group.candidate.position} · 共 {group.interviews.length} 轮面试
+                      面试岗位: <span className="text-slate-600 font-bold">{getJobTitle(group.interviews[0]?.job_id) || group.candidate.position || '未知岗位'}</span> · 共 {group.interviews.length} 轮面试
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center space-x-2 text-slate-400 text-sm font-bold">
-                  {selectedCandidateId === group.candidate.id ? '收起详情' : '展开记录'}
-                  <i className={`fas fa-chevron-${selectedCandidateId === group.candidate.id ? 'up' : 'down'} ml-2`}></i>
+                <div className="flex items-center space-x-4">
+                  {canHireCandidate(group) && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const jobId = getDefaultJobToHire(group);
+                        if (jobId) {
+                          setHiringCandidate({ candidate: group.candidate, jobId });
+                          setShowHireModal(true);
+                        }
+                      }}
+                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-black rounded-xl hover:bg-emerald-700 transition-all shadow-sm hover:shadow-emerald-200/50 flex items-center"
+                    >
+                      <i className="fas fa-user-check mr-2"></i>
+                      一键录用
+                    </button>
+                  )}
+                  <div className="flex items-center space-x-2 text-slate-400 text-sm font-bold">
+                    {selectedCandidateId === group.candidate.id ? '收起详情' : '展开记录'}
+                    <i className={`fas fa-chevron-${selectedCandidateId === group.candidate.id ? 'up' : 'down'} ml-2`}></i>
+                  </div>
                 </div>
               </div>
 
@@ -324,13 +573,27 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
                             <p className="text-sm font-bold text-slate-800">
                               面试官: {interview.interviewer?.full_name}
                             </p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              面试时间: {new Date(interview.updated_at).toLocaleDateString()}
-                            </p>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <p className="text-xs text-slate-400">
+                                岗位: <span className="text-indigo-600/70 font-bold">{getJobTitle(interview.job_id) || '未知岗位'}</span>
+                              </p>
+                              <span className="text-slate-200 text-[10px]">|</span>
+                              <p className="text-xs text-slate-400">
+                                时间: {new Date(interview.updated_at).toLocaleDateString()}
+                              </p>
+                            </div>
                           </div>
                         </div>
                         
                         <div className="flex items-center space-x-6">
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase ${
+                            interview.status === 'completed' ? 'bg-slate-100 text-slate-500' :
+                            interview.status === 'pending_decision' ? 'bg-purple-50 text-purple-600' :
+                            'bg-indigo-50 text-indigo-600'
+                          }`}>
+                            {interview.status === 'completed' ? '已完成' :
+                             interview.status === 'pending_decision' ? '待评价' : '进行中'}
+                          </span>
                           {interview.hiring_decision && (
                             <div className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${
                               interview.hiring_decision === 'hire' ? 'bg-emerald-50 text-emerald-600' :
@@ -360,6 +623,43 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ currentUser
           </div>
         )}
       </div>
+
+      {/* 录用确认弹窗 */}
+      {showHireModal && hiringCandidate && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-8">
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl mb-6">
+                <i className="fas fa-user-check"></i>
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">确认录用候选人</h3>
+              <p className="text-slate-500 text-sm leading-relaxed mb-6">
+                您确定要录用 <span className="font-bold text-slate-800">{hiringCandidate.candidate.name}</span> 吗？
+                <br />
+                录用岗位：<span className="font-bold text-indigo-600">{getJobTitle(hiringCandidate.jobId) || '未知岗位'}</span>
+              </p>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => {
+                    setShowHireModal(false);
+                    setHiringCandidate(null);
+                  }}
+                  className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleHire}
+                  className="flex-1 px-6 py-3 bg-emerald-600 text-white font-bold rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
+                >
+                  确定录用
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

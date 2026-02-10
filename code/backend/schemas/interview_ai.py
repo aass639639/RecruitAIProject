@@ -44,3 +44,21 @@ class InterviewCriteriaRefreshResponse(BaseModel):
 class InterviewPlanGenerateResponse(BaseModel):
     questions: List[InterviewQuestion]
     evaluation_criteria: List[str] = Field(..., description="评分维度/标准")
+
+class InterviewQuestionPerformance(BaseModel):
+    question: str
+    answer: Optional[str] = None
+    notes: Optional[str] = None
+    score: Optional[int] = None
+
+class InterviewEvaluationRequest(BaseModel):
+    candidate_id: int
+    jd: str
+    performances: List[InterviewQuestionPerformance]
+    overall_notes: Optional[str] = None
+
+class InterviewEvaluationResponse(BaseModel):
+    technical_evaluation: str = Field(..., description="技术层面评价")
+    logical_evaluation: str = Field(..., description="逻辑表达评价")
+    clarity_evaluation: str = Field(..., description="思路清晰度评价")
+    comprehensive_suggestion: str = Field(..., description="综合建议")
