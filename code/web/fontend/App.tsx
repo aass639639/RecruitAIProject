@@ -218,11 +218,7 @@ const App: React.FC = () => {
               {navItems.find(n => n.id === activeView)?.label || (activeView === 'interview' ? 'AI 面试辅助' : '')}
             </h2>
             <div className="flex items-center space-x-6">
-              <button className="text-slate-400 hover:text-indigo-600 transition-colors relative">
-                <i className="fas fa-bell"></i>
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-              </button>
-              <button className="text-slate-400 hover:text-indigo-600 transition-colors"><i className="fas fa-gear"></i></button>
+              {/* 移除通知和设置图标 */}
             </div>
           </div>
         </div>
