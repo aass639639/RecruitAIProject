@@ -13,7 +13,7 @@ client = OpenAI(
     api_key=settings.ARK_API_KEY
 )
 
-client = instructor.from_openai(client)  # 添加 instructor 补丁
+client = instructor.from_openai(client, mode=instructor.Mode.MD_JSON)  # 添加 instructor 补丁，使用 MD_JSON 模式适配 DeepSeek-R1
 
 MODEL_NAME = settings.ARK_MODEL
 

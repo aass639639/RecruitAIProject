@@ -915,15 +915,6 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
                             </span>
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">本题表现记录</label>
-                          <textarea
-                            value={plan.questions[currentStep].notes || ''}
-                            onChange={(e) => handleQuestionNoteChange(currentStep, e.target.value)}
-                            placeholder="记录候选人对本题的回答表现..."
-                            className="w-full h-32 p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-sm"
-                          />
-                        </div>
                       </div>
                     )}
                   </div>

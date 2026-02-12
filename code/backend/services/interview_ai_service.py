@@ -27,7 +27,7 @@ class InterviewAIService:
                 base_url=settings.ARK_BASE_URL,
                 api_key=settings.ARK_API_KEY
             )
-            self.client = instructor.from_openai(self.client)
+            self.client = instructor.from_openai(self.client, mode=instructor.Mode.MD_JSON)
             self.model_name = settings.ARK_MODEL
         else:
             self.client = None

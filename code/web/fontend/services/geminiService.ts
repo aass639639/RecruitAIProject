@@ -99,65 +99,21 @@ export const geminiService = {
   async regenerateSingleQuestion(
     candidate_id: number,
     jd: string,
-    old_question: string,
-    feedback?: string,
-    exclude_questions?: string[],
-    difficulty?: string
+    current_question: any,
+    feedback: string,
+    exclude_questions: string[]
   ): Promise<any> {
     try {
       const response = await apiClient.post('/interviews/regenerate-question', {
         candidate_id,
         jd,
-        old_question,
+        current_question,
         feedback,
-        exclude_questions,
-        difficulty
+        exclude_questions
       });
       return response.data;
     } catch (error) {
-      console.error("单题重新生成失败:", error);
-      throw error;
-    }
-  },
-
-  /**
-   * 手动录入题目补充元数据
-   */
-  async completeManualQuestion(
-    candidate_id: number,
-    jd: string,
-    question: string
-  ): Promise<any> {
-    try {
-      const response = await apiClient.post('/interviews/complete-manual-question', {
-        candidate_id,
-        jd,
-        question
-      });
-      return response.data;
-    } catch (error) {
-      console.error("手动录入题目补充失败:", error);
-      throw error;
-    }
-  },
-
-  /**
-   * 根据最新题目列表刷新评分维度
-   */
-  async refreshEvaluationCriteria(
-    candidate_id: number,
-    jd: string,
-    questions: string[]
-  ): Promise<string[]> {
-    try {
-      const response = await apiClient.post('/interviews/refresh-criteria', {
-        candidate_id,
-        jd,
-        questions
-      });
-      return response.data.evaluation_criteria;
-    } catch (error) {
-      console.error("刷新评分维度失败:", error);
+      console.error("重新生成题目失败:", error);
       throw error;
     }
   },
@@ -176,7 +132,7 @@ export const geminiService = {
   },
 
   /**
-   * 知识库 AI 问答
+   * 知识库问答 (RAG)
    */
   async chatWithKnowledge(question: string, session_id?: string): Promise<{ answer: string; source_ids: string[] }> {
     try {
@@ -189,15 +145,47 @@ export const geminiService = {
   },
 
   /**
-   * 获取 AI 面试官提示
+   * 生成知识点建议
    */
   async getKnowledgeTip(title: string, content: string): Promise<string> {
     try {
       const response = await apiClient.post('/knowledge/tip', { title, content });
       return response.data.tip;
     } catch (error) {
-      console.error("获取 AI 提示失败:", error);
-      return "针对该岗位的考察，建议结合候选人的项目经历进行深入提问。";
+      console.error("获取知识点建议失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 与招聘 Agent 对话
+   */
+  async chatWithAgent(message: string, history: { role: string, content: string }[] = []): Promise<{ answer: string, status: string }> {
+    try {
+      const response = await apiClient.post('/agent/chat', { message, history });
+      return response.data;
+    } catch (error) {
+      console.error("Agent 对话失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 上传文件供 Agent 处理
+   */
+  async uploadFileToAgent(file: File): Promise<{ status: string, filename: string, content: string }> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post('/agent/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Agent 上传文件失败:", error);
+      throw error;
     }
   },
 

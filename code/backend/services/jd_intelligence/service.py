@@ -1,9 +1,12 @@
 from typing import List, Optional
 import logging
+from sqlalchemy.orm import Session
 from core.config import settings
 from openai import OpenAI
 import instructor
 from pydantic import BaseModel
+from crud import job_description as crud_jd
+from schemas.job_description import JobDescriptionCreate
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +21,7 @@ class JDIntelligenceService:
                 base_url=settings.ARK_BASE_URL,
                 api_key=settings.ARK_API_KEY
             )
-            self.client = instructor.from_openai(self.client)
+            self.client = instructor.from_openai(self.client, mode=instructor.Mode.MD_JSON)
             self.model_name = settings.ARK_MODEL
         else:
             self.client = None
@@ -67,5 +70,33 @@ class JDIntelligenceService:
                 title="生成失败",
                 description=f"AI 处理过程中出现错误: {str(e)}"
             )
+
+    async def create_smart_jd(self, db: Session, jd_text: str, category: str = "技术类") -> dict:
+        """
+        AI 解析并入库 JD（抽取自 tools.py）
+        """
+        # 1. AI 解析和润色
+        result = await self.smart_generate_jd(jd_text)
+        
+        # 2. 尝试映射分类
+        # 如果 Agent 传过来的分类是“研发”，我们将其映射为前端默认存在的“技术类”
+        mapped_category = category
+        if category == "研发":
+            mapped_category = "技术类"
+        
+        # 3. 入库
+        jd_create = JobDescriptionCreate(
+            title=result.title,
+            description=result.description,
+            category=mapped_category,
+            requirement_count=1
+        )
+        new_jd = crud_jd.create_job_description(db, jd_create)
+        return {
+            "status": "success",
+            "message": f"职位【{new_jd.title}】已成功入库",
+            "jd_id": new_jd.id,
+            "title": new_jd.title
+        }
 
 jd_intelligence_service = JDIntelligenceService()

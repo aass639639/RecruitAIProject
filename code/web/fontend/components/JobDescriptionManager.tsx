@@ -12,7 +12,7 @@ interface JobDescriptionManagerProps {
   initialJdId?: number | null;
   onClearInitialJd?: () => void;
   onViewEvaluations?: (candidateId?: string, jid?: number) => void;
-  onViewCandidate?: (candidateId?: string) => void;
+  onViewCandidate?: (candidateId?: string, matchResult?: any) => void;
 }
 
 const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({ 
@@ -767,6 +767,10 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                           const isForThisJob = candidate.job_id === selectedJd.id;
                           const lastInterview = isForThisJob ? candidateInterviews.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] : null;
                           
+                          // 检查是否正在面试中（包括 pending, accepted, preparing, in_progress, pending_decision）
+                          const isInterviewing = candidate.status === 'interviewing' || 
+                                              (lastInterview && ['pending', 'accepted', 'preparing', 'in_progress', 'pending_decision'].includes(lastInterview.status));
+
                           return (
                             <div key={result.id} className="bg-slate-50/50 rounded-[2rem] border border-slate-100 p-6 hover:bg-white hover:shadow-xl hover:shadow-indigo-500/10 transition-all group border-l-4 border-l-transparent hover:border-l-indigo-500">
                               <div className="flex justify-between items-start mb-6">
@@ -777,14 +781,14 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                                   <div>
                                     <div className="flex items-center space-x-2">
                                       <h5 className="text-base font-black text-slate-800 group-hover:text-indigo-600 transition-colors">{candidate.name}</h5>
-                                      {lastInterview && (
+                                      {(lastInterview || candidate.status === 'interviewing') && (
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                          lastInterview.hiring_decision === 'reject' ? 'bg-rose-100 text-rose-600' :
-                                          lastInterview.status === 'completed' ? 'bg-emerald-100 text-emerald-600' :
+                                          lastInterview?.hiring_decision === 'reject' ? 'bg-rose-100 text-rose-600' :
+                                          lastInterview?.status === 'completed' ? 'bg-emerald-100 text-emerald-600' :
                                           'bg-blue-100 text-blue-600'
                                         }`}>
-                                          {lastInterview.hiring_decision === 'reject' ? '不合适' : 
-                                           lastInterview.status === 'completed' ? '面试完成' : '已分配'}
+                                          {lastInterview?.hiring_decision === 'reject' ? '不合适' : 
+                                           lastInterview?.status === 'completed' ? '面试完成' : '面试中'}
                                         </span>
                                       )}
                                     </div>
@@ -798,7 +802,12 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                                 </div>
                                 <div className="flex space-x-2">
                               <button 
-                                onClick={() => onViewCandidate?.(candidate.id.toString())}
+                                onClick={() => onViewCandidate?.(candidate.id.toString(), {
+                                  score: result.score,
+                                  analysis: result.analysis,
+                                  matching_points: result.matching_points,
+                                  mismatched_points: result.mismatched_points
+                                })}
                                 className="w-10 h-10 rounded-xl flex items-center justify-center text-indigo-600 bg-white border border-indigo-50 hover:bg-indigo-50 transition-all shadow-sm"
                                 title="查看详情"
                               >
@@ -806,15 +815,15 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                               </button>
                                   <button 
                                     onClick={() => handleOpenAssignModal(candidate)}
-                                    disabled={!!lastInterview}
+                                    disabled={isInterviewing}
                                     className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-lg ${
-                                      lastInterview 
+                                      isInterviewing 
                                         ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none' 
                                         : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'
                                     }`}
-                                    title={lastInterview ? "已分配面试官" : "分配面试官"}
+                                    title={isInterviewing ? "面试进行中，无法重复分配" : "分配面试官"}
                                   >
-                                    <i className={`fas ${lastInterview ? 'fa-user-check' : 'fa-user-plus'} text-sm`}></i>
+                                    <i className={`fas ${isInterviewing ? 'fa-lock' : 'fa-user-plus'} text-sm`}></i>
                                   </button>
                                 </div>
                           </div>

@@ -1,15 +1,40 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from typing import Optional
+from datetime import datetime
 from models.job_description import JobDescription
 from schemas.job_description import JobDescriptionCreate, JobDescriptionUpdate
 
 def get_job_description(db: Session, jd_id: int):
     return db.query(JobDescription).filter(JobDescription.id == jd_id).first()
 
-def get_job_descriptions(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(JobDescription).offset(skip).limit(limit).all()
+def get_job_descriptions(db: Session, skip: int = 0, limit: int = 100, search: Optional[str] = None, only_active: bool = False):
+    query = db.query(JobDescription)
+    
+    if only_active:
+        query = query.filter(
+            JobDescription.is_active == True,
+            JobDescription.current_hired_count < JobDescription.requirement_count
+        )
+
+    if search:
+        search_terms = search.split()
+        for term in search_terms:
+            term_filter = f"%{term}%"
+            query = query.filter(
+                or_(
+                    JobDescription.title.ilike(term_filter),
+                    JobDescription.description.ilike(term_filter),
+                    JobDescription.category.ilike(term_filter)
+                )
+            )
+            
+    return query.offset(skip).limit(limit).all()
 
 def create_job_description(db: Session, jd: JobDescriptionCreate):
     db_jd = JobDescription(**jd.model_dump())
+    if db_jd.created_at is None:
+        db_jd.created_at = datetime.now()
     db.add(db_jd)
     db.commit()
     db.refresh(db_jd)

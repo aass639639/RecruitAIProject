@@ -21,7 +21,7 @@ class JobMatcherService:
                 base_url=settings.ARK_BASE_URL,
                 api_key=settings.ARK_API_KEY
             )
-            self.client = instructor.from_openai(self.client)
+            self.client = instructor.from_openai(self.client, mode=instructor.Mode.MD_JSON)
             self.model_name = settings.ARK_MODEL
         else:
             self.client = None
@@ -43,10 +43,17 @@ class JobMatcherService:
         candidate_info = ""
         if isinstance(candidate, dict):
             name = candidate.get("name", "未知")
-            skills = ", ".join(candidate.get("skills", []))
-            experience = "\n".join(candidate.get("experience", []))
+            skills = ", ".join(candidate.get("skills", [])) if isinstance(candidate.get("skills"), list) else str(candidate.get("skills", ""))
+            experience = "\n".join(candidate.get("experience", [])) if isinstance(candidate.get("experience"), list) else str(candidate.get("experience", ""))
             education = candidate.get("education", "未知")
             summary = candidate.get("summary", "")
+            candidate_info = f"姓名：{name}\n教育：{education}\n技能：{skills}\n经历：{experience}\n总结：{summary}"
+        elif hasattr(candidate, "name"): # 处理 SQLAlchemy 模型对象
+            name = getattr(candidate, "name", "未知")
+            skills = ", ".join(candidate.skills) if isinstance(getattr(candidate, "skills"), list) else str(getattr(candidate, "skills", ""))
+            experience = getattr(candidate, "experience", "")
+            education = getattr(candidate, "education", "未知")
+            summary = getattr(candidate, "summary", "")
             candidate_info = f"姓名：{name}\n教育：{education}\n技能：{skills}\n经历：{experience}\n总结：{summary}"
         else:
             candidate_info = str(candidate)
@@ -92,5 +99,53 @@ class JobMatcherService:
                 matching_points=[],
                 mismatched_points=[]
             )
+
+    async def match_candidates(self, db: Session, candidates: List[Any], jd_description: str, limit: int = 5) -> List[dict]:
+        """
+        批量匹配候选人并过滤（抽取自原有逻辑）
+        """
+        import asyncio
+        # 过滤掉已入职的候选人 (更加鲁棒的过滤逻辑，同时支持对象和字典)
+        def is_hired(c):
+            status = ""
+            if isinstance(c, dict):
+                status = c.get("status", "")
+            else:
+                status = getattr(c, "status", "")
+            
+            if status is None:
+                return False
+            return str(status).strip().lower() == "hired"
+
+        active_candidates = [c for c in candidates if not is_hired(c)]
+        
+        # 调试打印
+        print(f"DEBUG [match_candidates]: Total candidates: {len(candidates)}, Active after filtering: {len(active_candidates)}")
+        if len(candidates) > len(active_candidates):
+            filtered_names = [c.name if not isinstance(c, dict) else c.get("name") for c in candidates if is_hired(c)]
+            print(f"DEBUG [match_candidates]: Filtered out (hired): {filtered_names}")
+        
+        if not active_candidates:
+            return []
+            
+        tasks = [self.analyze_match(c, jd_description) for c in active_candidates]
+        match_results = await asyncio.gather(*tasks)
+        
+        results = []
+        for i, result in enumerate(match_results):
+            results.append({
+                "candidate_id": active_candidates[i].id,
+                "candidate_name": active_candidates[i].name,
+                "score": result.score,
+                "analysis": result.analysis,
+                "matching_points": result.matching_points,
+                "mismatched_points": result.mismatched_points,
+                "position": active_candidates[i].position,
+                "status": getattr(active_candidates[i], "status", "none")
+            })
+        
+        # 按分数排序
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:limit]
 
 job_matcher_service = JobMatcherService()

@@ -77,6 +77,12 @@ export interface AiEvaluation {
   comprehensive_suggestion: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string; // 使用 string 方便序列化存储
+}
+
 export interface Interview {
   id: number;
   candidate_id: number;

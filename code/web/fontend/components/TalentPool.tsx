@@ -10,6 +10,12 @@ interface TalentPoolProps {
   currentUser: User | null;
   onViewEvaluations?: (candidateId?: string) => void;
   preselectedCandidateId?: string | null;
+  preselectedMatchResult?: {
+    score: number;
+    analysis: string;
+    matching_points?: string[];
+    mismatched_points?: string[];
+  } | null;
   onClearPreselect?: () => void;
 }
 
@@ -18,12 +24,15 @@ const TalentPool: React.FC<TalentPoolProps> = ({
   currentUser, 
   onViewEvaluations,
   preselectedCandidateId,
+  preselectedMatchResult,
   onClearPreselect
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [positionFilter, setPositionFilter] = useState('全部');
   const [expFilter, setExpFilter] = useState('全部');
+  const [statusFilter, setStatusFilter] = useState('active'); // 默认为 active (排除已录用)
   const [viewingCandidate, setViewingCandidate] = useState<Candidate | null>(null);
+  const [currentMatchResult, setCurrentMatchResult] = useState<any>(null);
   const [talents, setTalents] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [interviewers, setInterviewers] = useState<User[]>([]);
@@ -111,13 +120,32 @@ const TalentPool: React.FC<TalentPoolProps> = ({
 
   useEffect(() => {
     if (preselectedCandidateId && talents.length > 0) {
-      const candidate = talents.find(t => t.id === preselectedCandidateId);
+      console.log('TalentPool: Checking preselectedCandidateId:', preselectedCandidateId);
+      console.log('TalentPool: Current talents count:', talents.length);
+      
+      // 统一转换为字符串进行匹配
+      const targetId = String(preselectedCandidateId);
+      const candidate = talents.find(t => t && t.id && String(t.id) === targetId);
+      
       if (candidate) {
+        console.log('TalentPool: Match found! Opening candidate:', candidate.name);
         setViewingCandidate(candidate);
-        onClearPreselect?.();
+        if (preselectedMatchResult) {
+          console.log('TalentPool: Setting match result:', preselectedMatchResult.score);
+          setCurrentMatchResult(preselectedMatchResult);
+        }
+        
+        // 增加延迟，确保组件已完成初始渲染并响应了状态变更
+        const timer = setTimeout(() => {
+          console.log('TalentPool: Executing onClearPreselect');
+          onClearPreselect?.();
+        }, 500); // 增加到 500ms 确保更稳定
+        return () => clearTimeout(timer);
+      } else {
+        console.warn('TalentPool: Preselected candidate not found in list. Target ID:', targetId);
       }
     }
-  }, [preselectedCandidateId, talents]);
+  }, [preselectedCandidateId, talents, preselectedMatchResult, onClearPreselect]);
 
   const handleAssignInterview = async (candidateId: string) => {
     if (!assigningTo) {
@@ -166,8 +194,15 @@ const TalentPool: React.FC<TalentPoolProps> = ({
       else if (expFilter === '5-10年') matchesExp = years > 5 && years <= 10;
       else if (expFilter === '10年以上') matchesExp = years > 10;
     }
+
+    let matchesStatus = true;
+    if (statusFilter === 'active') {
+      matchesStatus = t.status !== 'hired';
+    } else if (statusFilter !== '全部') {
+      matchesStatus = t.status === statusFilter;
+    }
     
-    return matchesSearch && matchesPosition && matchesExp;
+    return matchesSearch && matchesPosition && matchesExp && matchesStatus;
   });
 
   const handleResign = (candidateId: string) => {
@@ -184,7 +219,11 @@ const TalentPool: React.FC<TalentPoolProps> = ({
           candidate={viewingCandidate} 
           interviews={interviews}
           currentUser={currentUser}
-          onBack={() => setViewingCandidate(null)}
+          matchResult={currentMatchResult}
+          onBack={() => {
+            setViewingCandidate(null);
+            setCurrentMatchResult(null);
+          }}
           onViewEvaluations={onViewEvaluations}
           onUpdateStatus={handleUpdateCandidateStatus}
           onResign={handleResign}
@@ -221,6 +260,19 @@ const TalentPool: React.FC<TalentPoolProps> = ({
                 className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
               >
                 {expRanges.map(e => <option key={e} value={e}>{e === '全部' ? '所有经验' : e}</option>)}
+              </select>
+
+              <select 
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              >
+                <option value="active">在库人才 (排除录用)</option>
+                <option value="全部">所有状态</option>
+                <option value="hired">已录用</option>
+                <option value="rejected">已拒绝</option>
+                <option value="resigned">已离职</option>
+                <option value="interviewing">面试中</option>
               </select>
             </div>
           </div>
@@ -401,6 +453,12 @@ interface CandidateDetailViewProps {
   candidate: Candidate;
   interviews: any[];
   currentUser: User | null;
+  matchResult?: {
+    score: number;
+    analysis: string;
+    matching_points?: string[];
+    mismatched_points?: string[];
+  } | null;
   onBack: () => void;
   onViewEvaluations: (candidateId?: string) => void;
   onUpdateStatus: (candidateId: string, status: string, job_id?: number) => void;
@@ -413,6 +471,7 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
   candidate, 
   interviews, 
   currentUser, 
+  matchResult,
   onBack, 
   onViewEvaluations, 
   onUpdateStatus, 
@@ -481,8 +540,8 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
           )}
           {currentUser?.role === 'admin' && (
             activeInterview ? (
-              <div className="flex items-center bg-amber-50 text-amber-700 px-4 py-2 rounded-xl text-xs font-bold border border-amber-100">
-                <i className="fas fa-lock mr-2"></i> {getStatusText(activeInterview.status)}
+              <div className="flex items-center bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold border border-blue-100">
+                <i className="fas fa-lock mr-2"></i> 面试进行中 ({getStatusText(activeInterview.status)})
               </div>
             ) : (
               <>
@@ -517,14 +576,14 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                     离职
                   </button>
                 )}
-                {/* {(candidate.status === 'none' || candidate.status === 'resigned' || candidate.status === 'rejected') && !activeInterview && (
+                {(candidate.status === 'none' || candidate.status === 'resigned' || candidate.status === 'rejected') && !activeInterview && (
                   <button 
                     onClick={onAssignInterview}
                     className="bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
                   >
                     {candidate.status === 'resigned' ? '重新分配面试' : '分配面试官'}
                   </button>
-                )} */}
+                )}
               </>
             )
           )}
@@ -607,6 +666,69 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
         </div>
 
         <div className="lg:col-span-3 space-y-8">
+          {matchResult && (
+            <section className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-black text-slate-800 flex items-center">
+                  <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center mr-3 shadow-lg shadow-blue-200">
+                    <i className="fas fa-robot text-sm"></i>
+                  </div>
+                  智能匹配分析
+                </h3>
+                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-blue-100 shadow-sm">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-3">匹配得分</span>
+                  <span className="text-2xl font-black text-blue-600">{matchResult.score}</span>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3 flex items-center">
+                    <i className="fas fa-comment-dots mr-2 text-blue-400"></i>
+                    分析结论
+                  </h4>
+                  <p className="text-sm text-slate-600 leading-relaxed font-medium bg-white/50 p-4 rounded-xl border border-blue-50/50">
+                    {matchResult.analysis}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {matchResult.matching_points && matchResult.matching_points.length > 0 && (
+                    <div className="bg-emerald-50/30 p-4 rounded-xl border border-emerald-100/50">
+                      <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-3 flex items-center">
+                        <i className="fas fa-check-circle mr-2"></i>
+                        匹配项
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {matchResult.matching_points.map((point, i) => (
+                          <span key={i} className="px-2.5 py-1 bg-white text-emerald-600 rounded-lg text-[10px] font-bold border border-emerald-100 shadow-sm">
+                            {point}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {matchResult.mismatched_points && matchResult.mismatched_points.length > 0 && (
+                    <div className="bg-rose-50/30 p-4 rounded-xl border border-rose-100/50">
+                      <h4 className="text-[10px] font-black text-rose-600 uppercase tracking-wider mb-3 flex items-center">
+                        <i className="fas fa-exclamation-circle mr-2"></i>
+                        差异项
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {matchResult.mismatched_points.map((point, i) => (
+                          <span key={i} className="px-2.5 py-1 bg-white text-rose-600 rounded-lg text-[10px] font-bold border border-rose-100 shadow-sm">
+                            {point}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
           <section>
             <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center">
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-2"></span>
@@ -639,7 +761,7 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
               工作经历
             </h3>
             <div className="space-y-4">
-              {candidate.experience && candidate.experience.length > 0 ? (
+              {Array.isArray(candidate.experience) && candidate.experience.length > 0 ? (
                 candidate.experience.map((exp: any, idx: number) => (
                   <div key={idx} className="flex items-start space-x-3 p-4 bg-slate-50/50 rounded-xl border border-slate-100">
                     <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full mt-1.5 flex-shrink-0"></div>
@@ -650,13 +772,17 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                         </ReactMarkdown>
                       ) : (
                         <>
-                          <span className="font-bold text-slate-800">{exp.company || ''}</span>
-                          {exp.position && <span className="mx-2 text-indigo-500">· {exp.position}</span>}
-                          {exp.period && <span className="ml-auto text-xs text-slate-400">({exp.period})</span>}
-                          {exp.description && (
+                          <span className="font-bold text-slate-800">{exp.company || exp.company_name || ''}</span>
+                          {(exp.position) && <span className="mx-2 text-indigo-500">· {exp.position}</span>}
+                          {(exp.period || exp.start_date) && (
+                            <span className="ml-auto text-xs text-slate-400">
+                              ({exp.period || `${exp.start_date}${exp.end_date ? ' - ' + exp.end_date : ''}`})
+                            </span>
+                          )}
+                          {(exp.description) && (
                             <div className="mt-2 text-xs text-slate-500 markdown-content">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {exp.description}
+                                {Array.isArray(exp.description) ? exp.description.join('\n') : exp.description}
                               </ReactMarkdown>
                             </div>
                           )}
@@ -671,7 +797,7 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
             </div>
           </section>
 
-          {candidate.projects && candidate.projects.length > 0 && (
+          {Array.isArray(candidate.projects) && candidate.projects.length > 0 && (
             <section>
               <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center">
                 <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-2"></span>
@@ -682,7 +808,11 @@ const CandidateDetailView: React.FC<CandidateDetailViewProps> = ({
                   <div key={idx} className="p-4 bg-slate-50/50 rounded-xl border border-slate-100">
                     <div className="flex justify-between items-start mb-2">
                       <h4 className="font-bold text-slate-800">{proj.name || (typeof proj === 'string' ? proj : '未命名项目')}</h4>
-                      {proj.period && <span className="text-xs text-slate-400">({proj.period})</span>}
+                      {(proj.period || proj.start_date) && (
+                        <span className="text-xs text-slate-400">
+                          ({proj.period || `${proj.start_date}${proj.end_date ? ' - ' + proj.end_date : ''}`})
+                        </span>
+                      )}
                     </div>
                     {proj.role && <p className="text-xs font-semibold text-indigo-500 mb-2">{proj.role}</p>}
                     <div className="text-sm text-slate-600 leading-relaxed markdown-content">

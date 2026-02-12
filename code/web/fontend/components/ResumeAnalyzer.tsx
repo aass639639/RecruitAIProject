@@ -18,6 +18,7 @@ const ResumeAnalyzer: React.FC = () => {
   const [parsing, setParsing] = useState(false);
   const [candidate, setCandidate] = useState<Partial<Candidate> | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [projectsJson, setProjectsJson] = useState('');
   const [uploading, setUploading] = useState(false);
   
   // 批量上传相关状态
@@ -28,6 +29,14 @@ const ResumeAnalyzer: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const batchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (candidate?.projects) {
+      setProjectsJson(JSON.stringify(candidate.projects, null, 2));
+    } else {
+      setProjectsJson('[]');
+    }
+  }, [candidate]);
 
   const handleParse = async () => {
     if (!text.trim()) return;
@@ -229,21 +238,23 @@ const ResumeAnalyzer: React.FC = () => {
       // 批量模式下的编辑
       setBatchFiles(prev => {
         const next = [...prev];
-        next[editingIndex] = {
-          ...next[editingIndex],
-          result: {
-            ...next[editingIndex].result,
-            [field]: value
-          }
-        };
+        const currentItem = next[editingIndex];
+        if (currentItem && currentItem.result) {
+          next[editingIndex] = {
+            ...currentItem,
+            result: {
+              ...currentItem.result,
+              [field]: value
+            }
+          };
+        }
         return next;
       });
       // 同时同步到当前显示的 candidate 以便预览
-      setCandidate(prev => prev ? { ...prev, [field]: value } : null);
+      setCandidate(prev => prev ? { ...prev, [field]: value } : { [field]: value } as Partial<Candidate>);
     } else {
       // 普通模式下的编辑
-      if (!candidate) return;
-      setCandidate({ ...candidate, [field]: value });
+      setCandidate(prev => prev ? { ...prev, [field]: value } : { [field]: value } as Partial<Candidate>);
     }
   };
 
@@ -474,8 +485,8 @@ const ResumeAnalyzer: React.FC = () => {
                     type="text"
                     value={candidate.name || ''}
                     onChange={(e) => updateCandidate('name', e.target.value)}
-                    className="text-3xl font-black text-slate-800 border-b-2 border-indigo-500 focus:outline-none w-full"
-                    placeholder="姓名"
+                    className="text-3xl font-black text-slate-800 border-b-4 border-indigo-500 bg-indigo-50/50 px-2 py-1 focus:outline-none w-full rounded-t-lg"
+                    placeholder="请输入姓名..."
                   />
                 ) : (
                   <h3 className="text-3xl font-black text-slate-800">{candidate.name || '未提取到姓名'}</h3>
@@ -488,8 +499,8 @@ const ResumeAnalyzer: React.FC = () => {
                         type="text"
                         value={candidate.email || ''}
                         onChange={(e) => updateCandidate('email', e.target.value)}
-                        className="border-b border-slate-300 focus:border-indigo-500 focus:outline-none"
-                        placeholder="邮箱"
+                        className="border-b-2 border-indigo-300 focus:border-indigo-500 focus:outline-none bg-indigo-50/30 px-2 py-0.5 rounded"
+                        placeholder="邮箱地址"
                       />
                     ) : (
                       candidate.email || '暂无邮箱'
@@ -502,8 +513,8 @@ const ResumeAnalyzer: React.FC = () => {
                         type="text"
                         value={candidate.phone || ''}
                         onChange={(e) => updateCandidate('phone', e.target.value)}
-                        className="border-b border-slate-300 focus:border-indigo-500 focus:outline-none"
-                        placeholder="电话"
+                        className="border-b-2 border-indigo-300 focus:border-indigo-500 focus:outline-none bg-indigo-50/30 px-2 py-0.5 rounded"
+                        placeholder="电话号码"
                       />
                     ) : (
                       candidate.phone || '暂无电话'
@@ -521,13 +532,14 @@ const ResumeAnalyzer: React.FC = () => {
             <div className="space-y-8">
               <section>
                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">教育背景</h4>
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                <div className={`p-4 rounded-xl border-2 transition-all ${isEditing ? 'bg-white border-indigo-500 shadow-sm' : 'bg-slate-50 border-slate-100'}`}>
                   {isEditing ? (
                     <textarea
                       value={candidate.education_summary || ''}
                       onChange={(e) => updateCandidate('education_summary', e.target.value)}
                       className="w-full bg-transparent border-none focus:outline-none text-slate-800 font-bold leading-relaxed resize-none"
-                      rows={2}
+                      rows={3}
+                      placeholder="教育经历描述..."
                     />
                   ) : (
                     <p className="text-slate-800 font-bold leading-relaxed">{candidate.education_summary || '未提取到教育信息'}</p>
@@ -537,17 +549,17 @@ const ResumeAnalyzer: React.FC = () => {
 
               <section>
                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">工作经历</h4>
-                <ul className="space-y-4">
+                <div className={`space-y-4 rounded-xl transition-all ${isEditing ? 'p-4 bg-white border-2 border-indigo-500 shadow-sm' : ''}`}>
                   {isEditing ? (
                     <textarea
                       value={candidate.experience_list?.join('\n') || ''}
-                      onChange={(e) => updateCandidate('experience_list', e.target.value.split('\n'))}
-                      className="w-full p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-600 text-sm leading-relaxed font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      rows={6}
-                      placeholder="每行一段工作经历..."
+                      onChange={(e) => updateCandidate('experience_list', e.target.value.split('\n').filter(line => line.trim() !== ''))}
+                      className="w-full bg-transparent border-none focus:outline-none text-slate-600 text-sm leading-relaxed font-medium"
+                      rows={8}
+                      placeholder="每行一段工作经历描述..."
                     />
                   ) : (
-                    <>
+                    <ul className="space-y-4">
                       {candidate.experience_list?.map((exp, i) => (
                         <li key={i} className="flex items-start group">
                           <div className="w-2 h-2 rounded-full bg-indigo-500 mt-2 mr-4 flex-shrink-0 group-hover:scale-125 transition-transform"></div>
@@ -561,9 +573,9 @@ const ResumeAnalyzer: React.FC = () => {
                       {(!candidate.experience_list || candidate.experience_list.length === 0) && (
                         <li className="text-slate-400 text-sm italic">未提取到经历信息</li>
                       )}
-                    </>
+                    </ul>
                   )}
-                </ul>
+                </div>
               </section>
             </div>
 
@@ -572,19 +584,30 @@ const ResumeAnalyzer: React.FC = () => {
                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">项目经验</h4>
                 <div className="space-y-4">
                   {isEditing ? (
-                    <textarea
-                      value={JSON.stringify(candidate.projects, null, 2) || '[]'}
-                      onChange={(e) => {
-                        try {
-                          updateCandidate('projects', JSON.parse(e.target.value));
-                        } catch (err) {
-                          // Ignore invalid JSON while typing
-                        }
-                      }}
-                      className="w-full p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-600 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      rows={6}
-                      placeholder="JSON 格式的项目列表..."
-                    />
+                    <div className="space-y-2">
+                      <textarea
+                        value={projectsJson}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setProjectsJson(val);
+                          try {
+                            const parsed = JSON.parse(val);
+                            updateCandidate('projects', parsed);
+                          } catch (err) {
+                            // 仅在 JSON 格式正确时同步到 candidate 状态
+                          }
+                        }}
+                        className="w-full p-4 bg-white rounded-xl border-2 border-indigo-500 shadow-sm text-slate-600 text-xs font-mono leading-relaxed focus:outline-none focus:ring-4 focus:ring-indigo-500/10"
+                        rows={10}
+                        placeholder="请输入 JSON 格式的项目列表，例如：[
+  {
+    'name': '项目名称',
+    'description': '项目描述'
+  }
+]"
+                      />
+                      <p className="text-[10px] text-slate-400 italic">提示：请确保 JSON 格式正确（双引号、闭合括号等）</p>
+                    </div>
                   ) : (
                     candidate.projects && candidate.projects.length > 0 ? (
                       candidate.projects.map((proj: any, i: number) => (
@@ -609,13 +632,16 @@ const ResumeAnalyzer: React.FC = () => {
               <section>
                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">个人总结</h4>
                 {isEditing ? (
-                  <input
-                    type="text"
-                    value={candidate.skill_tags?.join('，') || ''}
-                    onChange={(e) => updateCandidate('skill_tags', e.target.value.split(/[，,]/))}
-                    className="w-full p-4 bg-slate-50 rounded-xl border border-slate-100 text-indigo-700 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    placeholder="技能标签，用逗号分隔"
-                  />
+                  <div className="p-4 bg-white rounded-xl border-2 border-indigo-500 shadow-sm">
+                    <input
+                      type="text"
+                      value={candidate.skill_tags?.join('，') || ''}
+                      onChange={(e) => updateCandidate('skill_tags', e.target.value.split(/[，,]/).filter(s => s.trim() !== ''))}
+                      className="w-full bg-transparent border-none focus:outline-none text-indigo-700 text-xs font-bold"
+                      placeholder="技能标签，用中文或英文逗号分隔"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-2 italic">示例：Java, Python, 项目管理</p>
+                  </div>
                 ) : (
                   <div className="flex flex-wrap gap-2.5">
                     {candidate.skill_tags?.map((skill, i) => (
@@ -638,8 +664,9 @@ const ResumeAnalyzer: React.FC = () => {
                     <textarea
                       value={candidate.summary || ''}
                       onChange={(e) => updateCandidate('summary', e.target.value)}
-                      className="w-full text-slate-600 text-sm font-medium leading-relaxed bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100/30 italic focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      rows={4}
+                      className="w-full text-slate-600 text-sm font-medium leading-relaxed bg-white p-6 rounded-2xl border-2 border-indigo-500 shadow-sm italic focus:outline-none"
+                      rows={6}
+                      placeholder="简历核心价值画像总结..."
                     />
                   ) : (
                     <div className="text-slate-600 text-sm font-medium leading-relaxed bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100/30 italic markdown-content">

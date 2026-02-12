@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
 from sqlalchemy.sql import func
 from database import Base
+from datetime import datetime
 
 class JobDescription(Base):
     __tablename__ = "job_descriptions"
@@ -13,4 +14,4 @@ class JobDescription(Base):
     is_active = Column(Boolean, default=True)
     category = Column(String, default="其他") # 职位分类：技术类、市场运营类、行政财务类、产品类等
     close_reason = Column(String, nullable=True) # 关闭理由
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.now)

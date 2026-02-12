@@ -71,47 +71,44 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, onNavigate }) => {
       {isAdmin && (
         <section>
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6">快捷操作</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-4">
             <button 
               onClick={() => onNavigate('parse')}
-              className="group p-8 bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-xl hover:border-indigo-500/30 hover:-translate-y-1 transition-all text-left relative overflow-hidden"
+              className="group p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-xl hover:border-indigo-500/30 hover:-translate-y-0.5 transition-all text-left relative overflow-hidden flex items-center gap-4"
             >
-              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                <i className="fas fa-file-import text-6xl text-indigo-600"></i>
+              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors flex-shrink-0">
+                <i className="fas fa-file-import text-lg"></i>
               </div>
-              <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                <i className="fas fa-file-import text-xl"></i>
+              <div>
+                <h4 className="text-base font-black text-slate-800">人才录入</h4>
+                <p className="text-[11px] text-slate-500 font-medium line-clamp-1">利用 AI 智能解析单份或批量简历</p>
               </div>
-              <h4 className="text-xl font-black text-slate-800 mb-2">人才录入</h4>
-              <p className="text-sm text-slate-500 leading-relaxed font-medium">利用 AI 智能解析单份或批量简历，快速填充人才库</p>
             </button>
 
             <button 
               onClick={() => onNavigate('jd-management')}
-              className="group p-8 bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-xl hover:border-emerald-500/30 hover:-translate-y-1 transition-all text-left relative overflow-hidden"
+              className="group p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-xl hover:border-emerald-500/30 hover:-translate-y-0.5 transition-all text-left relative overflow-hidden flex items-center gap-4"
             >
-              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                <i className="fas fa-briefcase text-6xl text-emerald-600"></i>
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors flex-shrink-0">
+                <i className="fas fa-briefcase text-lg"></i>
               </div>
-              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                <i className="fas fa-briefcase text-xl"></i>
+              <div>
+                <h4 className="text-base font-black text-slate-800">我要招聘</h4>
+                <p className="text-[11px] text-slate-500 font-medium line-clamp-1">管理职位描述 (JD)，开启招聘流程</p>
               </div>
-              <h4 className="text-xl font-black text-slate-800 mb-2">我要招聘</h4>
-              <p className="text-sm text-slate-500 leading-relaxed font-medium">管理职位描述 (JD)，开启招聘流程，精准匹配人才</p>
             </button>
 
             <button 
               onClick={() => onNavigate('knowledge-base')}
-              className="group p-8 bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-xl hover:border-amber-500/30 hover:-translate-y-1 transition-all text-left relative overflow-hidden"
+              className="group p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-xl hover:border-amber-500/30 hover:-translate-y-0.5 transition-all text-left relative overflow-hidden flex items-center gap-4"
             >
-              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                <i className="fas fa-book text-6xl text-amber-600"></i>
+              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors flex-shrink-0">
+                <i className="fas fa-book text-lg"></i>
               </div>
-              <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                <i className="fas fa-book text-xl"></i>
+              <div>
+                <h4 className="text-base font-black text-slate-800">学习问答</h4>
+                <p className="text-[11px] text-slate-500 font-medium line-clamp-1">访问企业知识库，查看面试指南</p>
               </div>
-              <h4 className="text-xl font-black text-slate-800 mb-2">学习问答</h4>
-              <p className="text-sm text-slate-500 leading-relaxed font-medium">访问企业知识库，查看面试指南、技术规范及 AI 问答</p>
             </button>
           </div>
         </section>

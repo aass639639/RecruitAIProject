@@ -41,7 +41,7 @@ GEMINI_API_KEY = "你的_GEMINI_KEY"
 
 # Doubao (Ark) 配置
 ARK_API_KEY = "你的_ARK_KEY"
-ARK_MODEL = "doubao-seed-1-8-251228" #可以更换成你的model
+ARK_MODEL = "doubao-1-5-pro-32k-250115" #可以更换成你的model
 ```
 
 #### 运行后端

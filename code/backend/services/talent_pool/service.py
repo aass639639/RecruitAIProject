@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Tuple, Any
 from crud import candidate as crud_candidate
 from crud import job_description as crud_jd
 from schemas import candidate as schema_candidate
 from schemas import job_description as schema_jd
+from services.resume_parser.service import ResumeParserService
 
 class TalentPoolService:
     def get_candidates(
@@ -14,10 +15,18 @@ class TalentPoolService:
         search: Optional[str] = None,
         position: Optional[str] = None,
         job_id: Optional[int] = None,
-        status: Optional[str] = None
+        status: Optional[str] = None,
+        exclude_status: Optional[str] = None
     ):
         return crud_candidate.get_candidates(
-            db, skip=skip, limit=limit, search=search, position=position, job_id=job_id, status=status
+            db, 
+            skip=skip, 
+            limit=limit, 
+            search=search, 
+            position=position, 
+            job_id=job_id, 
+            status=status,
+            exclude_status=exclude_status
         )
 
     def get_candidate(self, db: Session, candidate_id: int):
@@ -64,5 +73,61 @@ class TalentPoolService:
 
     def delete_candidate(self, db: Session, candidate_id: int):
         return crud_candidate.delete_candidate(db, candidate_id=candidate_id)
+
+    async def create_candidate_from_resume(self, db: Session, resume_text: str) -> dict:
+        """
+        AI 解析并入库候选人（抽取自 tools.py）
+        """
+        parser = ResumeParserService()
+        # 1. AI 解析
+        resume_data = await parser.parse_resume(resume_text)
+        
+        # 2. 入库 - 转换为前端兼容的格式
+        experience_data = []
+        if resume_data.work_experience:
+            for exp in resume_data.work_experience:
+                experience_data.append({
+                    "company": exp.company_name,
+                    "position": exp.position,
+                    "period": f"{exp.start_date} - {exp.end_date}",
+                    "description": "\n".join(exp.description) if isinstance(exp.description, list) else exp.description
+                })
+
+        projects_data = []
+        if resume_data.projects:
+            for proj in resume_data.projects:
+                projects_data.append({
+                    "name": proj.name,
+                    "role": proj.role,
+                    "period": f"{proj.start_date} - {proj.end_date}" if proj.start_date else "",
+                    "description": proj.description,
+                    "technologies": proj.technologies
+                })
+
+        candidate_create = schema_candidate.CandidateCreate(
+            name=resume_data.name,
+            email=resume_data.email,
+            phone=resume_data.phone,
+            position=resume_data.position or "未分类",
+            education=resume_data.education_summary or (resume_data.education[0].school_name if resume_data.education else "未知"),
+            skills=resume_data.skill_tags,
+            experience=experience_data,
+            experience_list=getattr(resume_data, 'experience_list', []),
+            projects=projects_data,
+            summary=resume_data.summary,
+            parsing_score=resume_data.parsing_score,
+            years_of_experience=resume_data.years_of_experience
+        )
+        
+        new_candidate, error = self.create_candidate(db, candidate_create)
+        if error:
+            return {"status": "error", "message": error}
+        
+        return {
+            "status": "success",
+            "message": f"候选人【{new_candidate.name}】已成功入库",
+            "candidate_id": new_candidate.id,
+            "name": new_candidate.name
+        }
 
 talent_pool_service = TalentPoolService()

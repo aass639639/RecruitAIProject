@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, cast, String
 from models.candidate import Candidate
 from typing import List, Optional
 
@@ -12,24 +13,56 @@ def get_candidates(
     search: Optional[str] = None,
     position: Optional[str] = None,
     job_id: Optional[int] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    exclude_status: Optional[str] = None
 ):
     query = db.query(Candidate)
     
     if search:
-        query = query.filter(
-            (Candidate.name.contains(search)) | 
-            (Candidate.skills.contains(search))
-        )
+        # 支持空格分词搜索
+        search_terms = search.split()
+        or_filters = []
+        for term in search_terms:
+            term_filter = f"%{term}%"
+            or_filters.append(
+                or_(
+                    Candidate.name.ilike(term_filter),
+                    Candidate.position.ilike(term_filter),
+                    Candidate.summary.ilike(term_filter),
+                    cast(Candidate.skills, String).ilike(term_filter)
+                )
+            )
+        # 改进：将原本的 AND 逻辑改为更宽松的 OR 逻辑，以提高召回率
+        # 如果关键词很多，AND 逻辑太严苛了
+        query = query.filter(or_(*or_filters))
     
     if position and position != "全部":
-        query = query.filter(Candidate.position == position)
+        # 检查该 position 是否匹配系统中已有的分类
+        # 如果不匹配（比如 Agent 传了“技术类”），则不作为硬性过滤条件，避免搜不到人
+        standard_positions = ['研发', 'Data Scientist', 'IT支持', '财务', '生产运营', '物流/供应链管理', 'MEP设计工程师']
+        is_standard = any(p in position or position in p for p in standard_positions)
+        
+        if is_standard:
+            query = query.filter(Candidate.position.ilike(f"%{position}%"))
+        else:
+            # 如果不是标准分类，将其加入模糊搜索逻辑中
+            term_filter = f"%{position}%"
+            query = query.filter(
+                or_(
+                    Candidate.position.ilike(term_filter),
+                    Candidate.summary.ilike(term_filter),
+                    cast(Candidate.skills, String).ilike(term_filter)
+                )
+            )
         
     if job_id:
         query = query.filter(Candidate.job_id == job_id)
         
     if status:
         query = query.filter(Candidate.status == status)
+        
+    if exclude_status:
+        query = query.filter(Candidate.status != exclude_status)
         
     return query.offset(skip).limit(limit).all()
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -32,7 +32,12 @@ class JobDescriptionSmartResponse(BaseModel):
 class JobDescription(JobDescriptionBase):
     id: int
     current_hired_count: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
+
+    @field_validator('created_at', mode='before')
+    @classmethod
+    def set_created_at(cls, v):
+        return v or datetime.now()
 
     class Config:
         from_attributes = True
