@@ -7,7 +7,9 @@ import { Interview, User, Candidate, JobDescription } from '../types';
 interface InterviewEvaluationsProps {
   currentUser: User | null;
   preselectedCandidateId?: string | null;
+  preselectedInterviewSearch?: string | null;
   onClearPreselect?: () => void;
+  onClearInterviewSearch?: () => void;
   initialSelectedInterviewId?: number | null;
   onClearInitialInterview?: () => void;
   onBack?: () => void;
@@ -22,7 +24,9 @@ interface GroupedEvaluation {
 const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({ 
   currentUser, 
   preselectedCandidateId, 
+  preselectedInterviewSearch,
   onClearPreselect, 
+  onClearInterviewSearch,
   initialSelectedInterviewId,
   onClearInitialInterview,
   onBack 
@@ -71,6 +75,13 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({
       }
     }
   }, [initialSelectedInterviewId, groupedEvaluations, onClearInitialInterview]);
+
+  useEffect(() => {
+    if (preselectedInterviewSearch) {
+      setSearchTerm(preselectedInterviewSearch);
+      onClearInterviewSearch?.();
+    }
+  }, [preselectedInterviewSearch, onClearInterviewSearch]);
 
   const fetchEvaluations = async () => {
     setLoading(true);
@@ -341,32 +352,59 @@ const InterviewEvaluations: React.FC<InterviewEvaluationsProps> = ({
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
-                        <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
-                      </p>
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase flex items-center">
+                          <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
+                        </p>
+                        {selectedInterview.ai_evaluation.technical_evaluation?.score !== undefined && (
+                          <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full">
+                            {selectedInterview.ai_evaluation.technical_evaluation.score}分
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {selectedInterview.ai_evaluation.technical_evaluation}
+                          {typeof selectedInterview.ai_evaluation.technical_evaluation === 'string'
+                            ? selectedInterview.ai_evaluation.technical_evaluation
+                            : (selectedInterview.ai_evaluation.technical_evaluation?.feedback || "")}
                         </ReactMarkdown>
                       </div>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
-                        <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
-                      </p>
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase flex items-center">
+                          <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
+                        </p>
+                        {selectedInterview.ai_evaluation.logical_evaluation?.score !== undefined && (
+                          <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full">
+                            {selectedInterview.ai_evaluation.logical_evaluation.score}分
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {selectedInterview.ai_evaluation.logical_evaluation}
+                          {typeof selectedInterview.ai_evaluation.logical_evaluation === 'string'
+                            ? selectedInterview.ai_evaluation.logical_evaluation
+                            : (selectedInterview.ai_evaluation.logical_evaluation?.feedback || "")}
                         </ReactMarkdown>
                       </div>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center">
-                        <i className="fas fa-brain mr-2 text-indigo-400"></i> 思路清晰度
-                      </p>
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase flex items-center">
+                          <i className="fas fa-brain mr-2 text-indigo-400"></i> 沟通能力
+                        </p>
+                        {(selectedInterview.ai_evaluation.communication_evaluation?.score !== undefined || (selectedInterview.ai_evaluation as any).clarity_evaluation?.score !== undefined) && (
+                          <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full">
+                            {selectedInterview.ai_evaluation.communication_evaluation?.score ?? (selectedInterview.ai_evaluation as any).clarity_evaluation?.score}分
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {selectedInterview.ai_evaluation.clarity_evaluation}
+                          {typeof selectedInterview.ai_evaluation.communication_evaluation === 'string'
+                            ? selectedInterview.ai_evaluation.communication_evaluation
+                            : (selectedInterview.ai_evaluation.communication_evaluation?.feedback || (selectedInterview.ai_evaluation as any).clarity_evaluation?.feedback || (selectedInterview.ai_evaluation as any).clarity_evaluation || "")}
                         </ReactMarkdown>
                       </div>
                     </div>

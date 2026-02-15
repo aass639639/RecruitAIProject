@@ -25,17 +25,16 @@ class SearchCandidatesTool(BaseTool):
     def _run(self, query: str, position: Optional[str] = None):
         db = SessionLocal()
         try:
-            # 直接调用 talent_pool_service 的搜索逻辑，它已经包含了排除 hired 状态的逻辑
+            # 搜索人才时，不应排除任何状态（包括 hired），以便用户查找特定人员
             candidates = talent_pool_service.get_candidates(
                 db, 
                 search=query, 
-                position=position,
-                exclude_status="hired"
+                position=position
             )
             
             return [
                 {
-                    "id": c.id,
+                    "id": str(c.id),
                     "name": c.name,
                     "position": c.position,
                     "skills": c.skills,
@@ -48,11 +47,11 @@ class SearchCandidatesTool(BaseTool):
             db.close()
 
 class SearchJDInput(BaseModel):
-    query: str = Field(description="搜索关键词，如职位名称、技能要求等")
+    query: str = Field(description="搜索关键词，如职位名称、技能要求等。建议多个关键词用空格分隔以提高匹配率（如 'Java 工程师'）。")
 
 class SearchJDTool(BaseTool):
     name: str = "search_job_descriptions"
-    description: str = "在系统的职位库中搜索职位 (JD)。可以按职位名称、要求等关键词进行搜索。"
+    description: str = "在系统的职位库中搜索职位 (JD)。支持模糊搜索，建议输入关键职能标签。"
     args_schema: Type[BaseModel] = SearchJDInput
 
     def _run(self, query: str):
@@ -150,26 +149,55 @@ class GetJDListInput(BaseModel):
 
 class GetJDListTool(BaseTool):
     name: str = "get_job_descriptions"
-    description: str = "获取系统中已有的所有职位描述 (JD) 列表。返回职位的 ID、标题、具体描述、职位分类、招聘人数等信息。"
+    description: str = "【强制】在处理任何关于特定职位或所有职位的请求前，必须先调用此工具核实系统中是否存在该职位。返回职位 ID、标题、分类及激活状态。"
     args_schema: Type[BaseModel] = GetJDListInput
 
     def _run(self):
         db = SessionLocal()
         try:
             from crud import job_description as crud_jd
-            # 获取列表时返回所有职位，由 Agent 筛选展示
             jds = crud_jd.get_job_descriptions(db, only_active=False)
-            return [
+            data = [
                 {
                     "id": jd.id,
                     "title": jd.title,
-                    "description": jd.description,
                     "category": jd.category,
                     "requirement_count": jd.requirement_count,
                     "current_hired_count": jd.current_hired_count,
                     "is_active": jd.is_active
                 } for jd in jds
             ]
+            return {
+                "warning": "NOTE: If you are responding to a GENERAL inquiry about ALL open jobs, return a card with ID=0. If the user asked about a SPECIFIC job, you MAY use this data to identify it and return its specific ID.",
+                "jobs_summary": data
+            }
+        finally:
+            db.close()
+
+class GetCandidateListInput(BaseModel):
+    pass
+
+class GetCandidateListTool(BaseTool):
+    name: str = "get_candidates"
+    description: str = "获取人才库全量概览。当 search_candidates 无结果时，应调用此工具核实系统中是否确实没有该候选人。返回候选人 ID、姓名、职位、状态。"
+    args_schema: Type[BaseModel] = GetCandidateListInput
+
+    def _run(self):
+        db = SessionLocal()
+        try:
+            candidates = talent_pool_service.get_candidates(db, limit=100)
+            data = [
+                {
+                    "id": str(c.id),
+                    "name": c.name,
+                    "position": c.position,
+                    "status": getattr(c, "status", "")
+                } for c in candidates
+            ]
+            return {
+                "warning": "NOTE: If you are responding to a GENERAL inquiry about talent pool, return a card with ID='0'. If the user asked about a SPECIFIC person, use this data to find them.",
+                "candidates_summary": data
+            }
         finally:
             db.close()
 
@@ -195,10 +223,17 @@ class MatchCandidatesForJobTool(BaseTool):
             
             # 抽取后的复用逻辑：获取候选人并调用 JobMatcherService 进行统一匹配和过滤
             all_candidates = talent_pool_service.get_candidates(db, limit=100, exclude_status="hired")
-            results = await job_matcher_service.match_candidates(db, all_candidates, jd.description, limit)
+            match_results = await job_matcher_service.match_candidates(db, all_candidates, jd.description, limit)
             
-            if not results:
+            if not match_results:
                 return "人才库中暂无符合匹配条件的候选人（已过滤掉已入职人员）"
+
+            results = []
+            for res in match_results:
+                # 确保 candidate_id 为字符串，并注入 jd_id
+                res["candidate_id"] = str(res.get("candidate_id"))
+                res["jd_id"] = jd_id
+                results.append(res)
             
             return results
         finally:
@@ -233,6 +268,7 @@ class CreateJDTool(BaseTool):
                         "title": res.get("title"),
                         "category": category,
                         "requirement_count": 1,
+                        "hired_count": 0,
                         "description": "职位已成功存入系统"
                     }
                 }
@@ -282,6 +318,40 @@ class CreateCandidateTool(BaseTool):
         finally:
             db.close()
 
+class SearchInterviewInput(BaseModel):
+    candidate_name: str = Field(description="候选人姓名")
+
+class SearchInterviewTool(BaseTool):
+    name: str = "search_interviews"
+    description: str = "查询特定候选人的面试评价结果。如果找到面试记录，返回面试详情；如果未找到，则返回空。"
+    args_schema: Type[BaseModel] = SearchInterviewInput
+
+    def _run(self, candidate_name: str):
+        db = SessionLocal()
+        try:
+            from models.interview import Interview
+            from models.candidate import Candidate
+            
+            # 联表查询面试结果，按时间倒序排列，仅取最新一条
+            latest_interview = db.query(Interview).join(Candidate).filter(
+                Candidate.name.ilike(f"%{candidate_name}%")
+            ).order_by(Interview.interview_time.desc(), Interview.created_at.desc()).first()
+            
+            if not latest_interview:
+                return []
+            
+            return [{
+                "id": latest_interview.id,
+                "candidate_name": latest_interview.candidate.name,
+                "candidate_id": str(latest_interview.candidate_id),
+                "status": latest_interview.status,
+                "hiring_decision": latest_interview.hiring_decision,
+                "notes": latest_interview.notes,
+                "interview_time": latest_interview.interview_time.strftime("%Y-%m-%d %H:%M") if latest_interview.interview_time else "未定"
+            }]
+        finally:
+            db.close()
+
 def get_all_tools():
     return [
         SearchCandidatesTool(),
@@ -290,6 +360,8 @@ def get_all_tools():
         GenerateInterviewPlanTool(),
         KnowledgeQueryTool(),
         GetJDListTool(),
+        GetCandidateListTool(),
+        SearchInterviewTool(),
         MatchCandidatesForJobTool(),
         CreateJDTool(),
         CreateCandidateTool()

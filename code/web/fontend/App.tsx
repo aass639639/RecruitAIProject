@@ -22,13 +22,17 @@ const App: React.FC = () => {
   const [preselectedCandidateId, setPreselectedCandidateId] = useState<string | null>(null);
   const [preselectedMatchResult, setPreselectedMatchResult] = useState<any>(null);
   const [preselectedJdId, setPreselectedJdId] = useState<number | null>(null);
+  const [preselectedStatusFilter, setPreselectedStatusFilter] = useState<'all' | 'active' | 'closed' | 'full' | null>(null);
+  const [preselectedShowMatching, setPreselectedShowMatching] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [navigationStack, setNavigationStack] = useState<View[]>([]);
   const [isUserListOpen, setIsUserListOpen] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignParams, setAssignParams] = useState<{candidateId: string, jobId: number, candidateName?: string}>({ candidateId: '', jobId: 0 });
   const [selectedInterviewerId, setSelectedInterviewerId] = useState<number | null>(null);
+  const [preselectedInterviewSearch, setPreselectedInterviewSearch] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
     const saved = localStorage.getItem('recruit_ai_chat_history');
@@ -45,13 +49,26 @@ const App: React.FC = () => {
 
   const fetchUsers = async () => {
     try {
+      setIsInitializing(true);
+      console.log('App: Fetching users...');
       const response = await axios.get('http://localhost:8000/api/v1/users/');
+      console.log('App: Users fetched:', response.data);
       setAvailableUsers(response.data);
       // Default to admin for now
       const admin = response.data.find((u: User) => u.username === 'admin');
-      if (admin) setCurrentUser(admin);
+      if (admin) {
+        console.log('App: Setting default user to admin');
+        setCurrentUser(admin);
+      } else if (response.data.length > 0) {
+        console.log('App: Admin not found, setting default user to first available user');
+        setCurrentUser(response.data[0]);
+      } else {
+        console.warn('App: No users found in database');
+      }
     } catch (error) {
       console.error('Error fetching users:', error);
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -101,13 +118,17 @@ const App: React.FC = () => {
   const handleAgentAction = useCallback(async (action: string, params: any) => {
     console.log('App: Agent Action received:', action, params);
     if (action === 'jd') {
-      setPreselectedJdId(params.id);
+      if (params.id !== undefined && params.id !== null) {
+        setPreselectedJdId(params.id === 0 ? null : params.id);
+      }
+      if (params.status) {
+        setPreselectedStatusFilter(params.status);
+      }
       navigateTo('jd-management');
     } else if (action === 'candidate') {
-      if (params.id) {
+      if (params.id !== undefined && params.id !== null) {
         const idStr = String(params.id);
-        console.log('App: Setting preselected candidate ID:', idStr);
-        setPreselectedCandidateId(idStr);
+        setPreselectedCandidateId(idStr === "0" ? null : idStr);
       }
       if (params.score !== undefined) {
         setPreselectedMatchResult({
@@ -118,6 +139,12 @@ const App: React.FC = () => {
         });
       }
       navigateTo('talent');
+    } else if (action === 'match') {
+      if (params.id || params.jdId) {
+        setPreselectedJdId(params.id || params.jdId);
+        setPreselectedShowMatching(true);
+        navigateTo('jd-management');
+      }
     } else if (action === 'assign') {
       // 弹出分配面试官弹窗
       setAssignParams({
@@ -127,6 +154,11 @@ const App: React.FC = () => {
       });
       setShowAssignModal(true);
       setSelectedInterviewerId(null);
+    } else if (action === 'interview_detail') {
+      if (params.candidate_name) {
+        setPreselectedInterviewSearch(params.candidate_name);
+      }
+      navigateTo('evaluations');
     }
   }, [activeView]);
 
@@ -191,17 +223,30 @@ const App: React.FC = () => {
       case 'evaluations': return <InterviewEvaluations 
         currentUser={currentUser}
         preselectedCandidateId={preselectedCandidateId}
+        preselectedInterviewSearch={preselectedInterviewSearch}
         onClearPreselect={() => setPreselectedCandidateId(null)}
+        onClearInterviewSearch={() => setPreselectedInterviewSearch(null)}
       />;
       case 'knowledge-base': return <KnowledgeBase />;
       case 'jd-management': return <JobDescriptionManager 
         currentUser={currentUser}
         initialJdId={preselectedJdId}
-        onClearInitialJd={() => setPreselectedJdId(null)}
+        initialStatusFilter={preselectedStatusFilter || undefined}
+        initialShowMatching={preselectedShowMatching}
+        onClearInitialJd={() => {
+          setPreselectedJdId(null);
+          setPreselectedStatusFilter(null);
+          setPreselectedShowMatching(false);
+        }}
+        onViewEvaluations={(cid, jid) => {
+          if (cid) setPreselectedCandidateId(cid);
+          if (jid) setPreselectedJdId(jid);
+          navigateTo('evaluations');
+        }}
         onViewCandidate={(cid, matchResult) => {
           if (cid) setPreselectedCandidateId(cid);
           if (matchResult) setPreselectedMatchResult(matchResult);
-          setActiveView('talent');
+          navigateTo('talent');
         }}
       />;
       default: return <Dashboard currentUser={currentUser} onNavigate={handleNavClick} />;
@@ -217,6 +262,40 @@ const App: React.FC = () => {
     setActiveView('dashboard');
     setIsUserListOpen(false);
   };
+
+  if (isInitializing) {
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
+        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-500/20 mb-6 animate-bounce">
+          <i className="fa-solid fa-bolt-lightning text-white text-2xl"></i>
+        </div>
+        <div className="flex items-center space-x-3 text-slate-400">
+          <i className="fa-solid fa-circle-notch fa-spin text-xl"></i>
+          <span className="font-bold tracking-widest uppercase text-xs">正在初始化系统...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (availableUsers.length === 0) {
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
+        <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-3xl flex items-center justify-center mb-6 shadow-sm">
+          <i className="fa-solid fa-triangle-exclamation text-3xl"></i>
+        </div>
+        <h2 className="text-2xl font-black text-slate-800 mb-2">无法连接到服务器</h2>
+        <p className="text-slate-500 max-w-md mb-8">
+          系统无法获取用户列表，请确保后端服务（http://localhost:8000）已正常启动并可以访问。
+        </p>
+        <button 
+          onClick={() => fetchUsers()}
+          className="px-8 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+        >
+          重试连接
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">

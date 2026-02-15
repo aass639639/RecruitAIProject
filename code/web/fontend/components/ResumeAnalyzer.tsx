@@ -118,36 +118,53 @@ const ResumeAnalyzer: React.FC = () => {
 
   const startBatchParse = async () => {
     const pendingFiles = batchFiles.filter(f => f.status === 'pending' || f.status === 'failed');
-    if (pendingFiles.length === 0) return;
+    if (pendingFiles.length === 0) {
+      console.log("没有待解析的文件");
+      return;
+    }
 
     setParsing(true);
+    console.log(`开始批量解析，共 ${pendingFiles.length} 个文件`);
     
     // 依次解析文件
     for (let i = 0; i < batchFiles.length; i++) {
-      if (batchFiles[i].status !== 'pending' && batchFiles[i].status !== 'failed') continue;
+      const currentFile = batchFiles[i];
+      if (currentFile.status !== 'pending' && currentFile.status !== 'failed') continue;
 
+      console.log(`正在上传解析第 ${i + 1} 个文件: ${currentFile.file.name}`);
+    console.log(`请求地址: ${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/resume/upload`);
+
+    setBatchFiles(prev => {
+      const next = [...prev];
+      next[i] = { ...next[i], status: 'parsing' };
+      return next;
+    });
+
+    try {
+      const result = await geminiService.uploadResume(currentFile.file);
+      console.log(`文件 ${currentFile.file.name} 解析成功:`, result);
+      
       setBatchFiles(prev => {
         const next = [...prev];
-        next[i] = { ...next[i], status: 'parsing' };
+        next[i] = { ...next[i], status: 'success', result };
         return next;
       });
-
-      try {
-        const result = await geminiService.uploadResume(batchFiles[i].file);
-        setBatchFiles(prev => {
-          const next = [...prev];
-          next[i] = { ...next[i], status: 'success', result };
-          return next;
-        });
-      } catch (error) {
-        setBatchFiles(prev => {
-          const next = [...prev];
-          next[i] = { ...next[i], status: 'failed', error: '解析失败' };
-          return next;
-        });
-      }
+    } catch (error: any) {
+      console.error(`文件 ${currentFile.file.name} 解析失败:`, error);
+      console.error(`错误详情:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      setBatchFiles(prev => {
+        const next = [...prev];
+        next[i] = { ...next[i], status: 'failed', error: error.message || '解析失败' };
+        return next;
+      });
+    }
     }
     setParsing(false);
+    console.log("批量解析任务结束");
   };
 
   const handleBatchImport = async () => {

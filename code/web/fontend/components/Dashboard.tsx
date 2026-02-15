@@ -22,17 +22,24 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, onNavigate }) => {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      if (!currentUser) return;
+      if (!currentUser) {
+        setLoading(false);
+        return;
+      }
       
       try {
         setLoading(true);
         const response = await fetch(`http://localhost:8000/api/v1/dashboard/notifications?user_id=${currentUser.id}`);
         if (response.ok) {
           const data = await response.json();
-          setNotifications(data.notifications);
+          setNotifications(data.notifications || []);
+        } else {
+          console.error('Failed to fetch notifications:', response.statusText);
+          setNotifications([]);
         }
       } catch (error) {
         console.error('Error fetching notifications:', error);
+        setNotifications([]);
       } finally {
         setLoading(false);
       }

@@ -70,10 +70,17 @@ export interface User {
   department?: string;
 }
 
+export interface AiEvaluationResult {
+  dimension: string;
+  score: number;
+  feedback: string;
+}
+
 export interface AiEvaluation {
-  technical_evaluation: string;
-  logical_evaluation: string;
-  clarity_evaluation: string;
+  technical_evaluation: AiEvaluationResult;
+  logical_evaluation: AiEvaluationResult;
+  communication_evaluation?: AiEvaluationResult;
+  clarity_evaluation?: string; // 兼容旧版
   comprehensive_suggestion: string;
 }
 

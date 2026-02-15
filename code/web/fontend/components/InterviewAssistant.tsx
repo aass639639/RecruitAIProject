@@ -1005,32 +1005,59 @@ const InterviewAssistant: React.FC<InterviewAssistantProps> = ({ candidate, inte
                           {/* 分维度评价 */}
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-colors">
-                              <p className="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center">
-                                <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
-                              </p>
+                              <div className="flex justify-between items-start mb-3">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center">
+                                  <i className="fas fa-code mr-2 text-indigo-400"></i> 技术层面
+                                </p>
+                                {evaluationResult.technical_evaluation?.score !== undefined && (
+                                  <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full">
+                                    {evaluationResult.technical_evaluation.score}分
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {evaluationResult.technical_evaluation}
+                                  {typeof evaluationResult.technical_evaluation === 'string' 
+                                    ? evaluationResult.technical_evaluation 
+                                    : (evaluationResult.technical_evaluation?.feedback || "")}
                                 </ReactMarkdown>
                               </div>
                             </div>
                             <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-colors">
-                              <p className="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center">
-                                <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
-                              </p>
+                              <div className="flex justify-between items-start mb-3">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center">
+                                  <i className="fas fa-comment-alt mr-2 text-indigo-400"></i> 逻辑表达
+                                </p>
+                                {evaluationResult.logical_evaluation?.score !== undefined && (
+                                  <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full">
+                                    {evaluationResult.logical_evaluation.score}分
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {evaluationResult.logical_evaluation}
+                                  {typeof evaluationResult.logical_evaluation === 'string'
+                                    ? evaluationResult.logical_evaluation
+                                    : (evaluationResult.logical_evaluation?.feedback || "")}
                                 </ReactMarkdown>
                               </div>
                             </div>
                             <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-colors">
-                              <p className="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest flex items-center">
-                                <i className="fas fa-brain mr-2 text-indigo-400"></i> 思路清晰度
-                              </p>
+                              <div className="flex justify-between items-start mb-3">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center">
+                                  <i className="fas fa-brain mr-2 text-indigo-400"></i> 沟通能力
+                                </p>
+                                {(evaluationResult.communication_evaluation?.score !== undefined || (evaluationResult as any).clarity_evaluation?.score !== undefined) && (
+                                  <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full">
+                                    {evaluationResult.communication_evaluation?.score ?? (evaluationResult as any).clarity_evaluation?.score}分
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {evaluationResult.clarity_evaluation}
+                                  {typeof evaluationResult.communication_evaluation === 'string'
+                                    ? evaluationResult.communication_evaluation
+                                    : (evaluationResult.communication_evaluation?.feedback || (evaluationResult as any).clarity_evaluation?.feedback || (evaluationResult as any).clarity_evaluation || "")}
                                 </ReactMarkdown>
                               </div>
                             </div>

@@ -2,6 +2,7 @@ import instructor
 from openai import OpenAI
 import json
 from core.config import settings
+import asyncio
 from schemas.interview_ai import (
     InterviewPlanGenerateRequest, 
     InterviewPlanGenerateResponse,
@@ -11,7 +12,8 @@ from schemas.interview_ai import (
     InterviewCriteriaRefreshRequest,
     InterviewCriteriaRefreshResponse,
     InterviewEvaluationRequest,
-    InterviewEvaluationResponse
+    InterviewEvaluationResponse,
+    InterviewEvaluationResult
 )
 from sqlalchemy.orm import Session
 from crud.candidate import get_candidate
@@ -22,13 +24,14 @@ logger = logging.getLogger(__name__)
 class InterviewAssistantService:
     def __init__(self):
         if settings.ARK_API_KEY:
-            self.client = OpenAI(
+            self.openai_client = OpenAI(
                 base_url=settings.ARK_BASE_URL,
                 api_key=settings.ARK_API_KEY
             )
-            self.client = instructor.from_openai(self.client, mode=instructor.Mode.MD_JSON)
+            self.client = instructor.from_openai(self.openai_client, mode=instructor.Mode.MD_JSON)
             self.model_name = settings.ARK_MODEL
         else:
+            self.openai_client = None
             self.client = None
             logger.warning("ARK_API_KEY is not set for InterviewAssistantService.")
 
@@ -254,6 +257,47 @@ class InterviewAssistantService:
             logger.error(f"Error refreshing evaluation criteria: {str(e)}")
             raise Exception(f"评分维度更新失败: {str(e)}")
 
+    async def _evaluate_dimension(
+        self, dimension: str, jd: str, candidate_name: str, performances_text: str
+    ) -> InterviewEvaluationResult:
+        """
+        并行调用的评估子任务
+        """
+        system_prompt = f"""你是一个资深的面试评估专家，专门负责评估候选人的【{dimension}】。
+要求：
+1. **多源证据评估**：请根据候选人回答和面试官记录进行综合评估。
+2. **客观性**：给出客观的分数（0-100）和具体的评价反馈。
+3. **针对性**：反馈应包含优点和改进建议。"""
+
+        user_prompt = f"""
+### 招聘 JD 背景：
+{jd}
+
+### 候选人：{candidate_name}
+
+### 面试表现记录：
+{performances_text}
+
+请针对候选人的【{dimension}】表现进行打分并给出详细反馈。"""
+
+        try:
+            return self.client.chat.completions.create(
+                model=self.model_name,
+                response_model=InterviewEvaluationResult,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+            )
+        except Exception as e:
+            logger.error(f"Error evaluating dimension {dimension}: {str(e)}")
+            return InterviewEvaluationResult(
+                dimension=dimension,
+                score=0,
+                feedback=f"评估失败: {str(e)}"
+            )
+
     async def evaluate_interview(
         self, db: Session, request: InterviewEvaluationRequest
     ) -> InterviewEvaluationResponse:
@@ -274,52 +318,59 @@ class InterviewAssistantService:
 评分：{p.score if p.score else "未评分"}
 ---"""
 
-        system_prompt = """你是一个资深的招聘专家和面试评估官。你的任务是根据面试过程中的问答记录、面试官的笔记以及招聘 JD，对候选人进行全面、客观的评价。
-评价需要涵盖以下几个维度：
-1. **技术层面**：候选人对专业知识的掌握程度，解决问题的能力。
-2. **逻辑表达**：候选人回答问题是否有条理，是否能够清晰地表达自己的观点。
-3. **思路清晰度**：在面对复杂问题或压力面试时，候选人的思考过程是否清晰，是否有系统性的思维。
-4. **综合建议**：这是最重要的部分。请严格按照以下格式输出：
-    - **面试结论**：[建议录用 / 建议进入下一轮 / 不建议录用]
-    - **核心优势**：列出 2-3 点候选人的突出优点。
-    - **待提升点**：列出 1-2 点候选人需要改进或在后续面试中重点考察的点。
-    - **总结陈述**：一句话概括候选人的整体表现。
+        # 1. 并行调用三个维度的评估任务
+        dimensions = ["技术深度", "逻辑思维", "沟通能力"]
+        eval_tasks = [
+            self._evaluate_dimension(dim, request.jd, candidate.name, performances_text)
+            for dim in dimensions
+        ]
+        
+        # 使用 asyncio.gather 并行执行
+        evaluation_results = await asyncio.gather(*eval_tasks)
+        
+        tech_eval = evaluation_results[0]
+        logic_eval = evaluation_results[1]
+        comm_eval = evaluation_results[2]
 
-要求：
-- 评价要客观、专业，避免笼统的描述。
-- 综合建议必须先给出结论，再列出优缺点。
-- 字数适中，结构清晰。"""
+        # 2. 调用综合建议 Agent (汇总)
+        system_prompt = """你是一个资深的招聘专家。请根据各维度的评估结果，给出最终的面试综合建议。
+要求格式：
+- **面试结论**：[建议录用 / 建议进入下一轮 / 不建议录用]
+- **核心优势**：2-3 点。
+- **待提升点**：1-2 点。
+- **总结陈述**：一句话总结。"""
 
         user_prompt = f"""
-### 招聘 JD 内容：
-{request.jd}
-
-### 候选人信息：
-姓名：{candidate.name}
-职位：{candidate.position}
-
-### 面试表现记录：
-{performances_text}
+### 各维度评估结果：
+- 【技术深度】：{tech_eval.score}分 - {tech_eval.feedback}
+- 【逻辑思维】：{logic_eval.score}分 - {logic_eval.feedback}
+- 【沟通能力】：{comm_eval.score}分 - {comm_eval.feedback}
 
 ### 面试官综合总结：
 {request.overall_notes if request.overall_notes else "无"}
 
-请根据以上信息，给出详细的面试评价。"""
+请给出最终的面试评价和综合建议。"""
 
         try:
-            print(f"Evaluating interview for candidate {request.candidate_id}")
-            response = self.client.chat.completions.create(
+            print(f"Generating comprehensive suggestion for candidate {request.candidate_id}")
+            summary_response = self.openai_client.chat.completions.create(
                 model=self.model_name,
-                response_model=InterviewEvaluationResponse,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7,
             )
-            return response
+            comprehensive_suggestion = summary_response.choices[0].message.content
+
+            return InterviewEvaluationResponse(
+                technical_evaluation=tech_eval,
+                logical_evaluation=logic_eval,
+                communication_evaluation=comm_eval,
+                comprehensive_suggestion=comprehensive_suggestion
+            )
         except Exception as e:
-            logger.error(f"Error evaluating interview: {str(e)}")
-            raise Exception(f"面试评价生成失败: {str(e)}")
+            logger.error(f"Error generating comprehensive suggestion: {str(e)}")
+            raise Exception(f"综合建议生成失败: {str(e)}")
 
 interview_assistant_service = InterviewAssistantService()

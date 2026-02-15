@@ -19,15 +19,18 @@ def get_job_descriptions(db: Session, skip: int = 0, limit: int = 100, search: O
 
     if search:
         search_terms = search.split()
+        or_filters = []
         for term in search_terms:
             term_filter = f"%{term}%"
-            query = query.filter(
+            or_filters.append(
                 or_(
                     JobDescription.title.ilike(term_filter),
                     JobDescription.description.ilike(term_filter),
                     JobDescription.category.ilike(term_filter)
                 )
             )
+        # 改进：将原本的 AND 逻辑改为更宽松的 OR 逻辑，以提高召回率
+        query = query.filter(or_(*or_filters))
             
     return query.offset(skip).limit(limit).all()
 

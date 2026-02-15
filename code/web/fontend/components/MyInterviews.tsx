@@ -262,7 +262,9 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                       </p>
                       <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {selectedInterview.ai_evaluation.technical_evaluation}
+                          {typeof selectedInterview.ai_evaluation.technical_evaluation === 'string'
+                            ? selectedInterview.ai_evaluation.technical_evaluation
+                            : (selectedInterview.ai_evaluation.technical_evaluation?.feedback || "")}
                         </ReactMarkdown>
                       </div>
                     </div>
@@ -272,7 +274,9 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                       </p>
                       <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {selectedInterview.ai_evaluation.logical_evaluation}
+                          {typeof selectedInterview.ai_evaluation.logical_evaluation === 'string'
+                            ? selectedInterview.ai_evaluation.logical_evaluation
+                            : (selectedInterview.ai_evaluation.logical_evaluation?.feedback || "")}
                         </ReactMarkdown>
                       </div>
                     </div>
@@ -282,7 +286,9 @@ const MyInterviews: React.FC<MyInterviewsProps> = ({ currentUser, onStartIntervi
                       </p>
                       <div className="text-xs text-slate-600 leading-relaxed markdown-content">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {selectedInterview.ai_evaluation.clarity_evaluation}
+                          {typeof (selectedInterview.ai_evaluation as any).communication_evaluation === 'string'
+                            ? (selectedInterview.ai_evaluation as any).communication_evaluation
+                            : (selectedInterview.ai_evaluation.communication_evaluation?.feedback || (selectedInterview.ai_evaluation as any).clarity_evaluation?.feedback || (selectedInterview.ai_evaluation as any).clarity_evaluation || "")}
                         </ReactMarkdown>
                       </div>
                     </div>

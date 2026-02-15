@@ -99,21 +99,65 @@ export const geminiService = {
   async regenerateSingleQuestion(
     candidate_id: number,
     jd: string,
-    current_question: any,
+    old_question: string,
     feedback: string,
-    exclude_questions: string[]
+    exclude_questions: string[],
+    difficulty?: string
   ): Promise<any> {
     try {
       const response = await apiClient.post('/interviews/regenerate-question', {
         candidate_id,
         jd,
-        current_question,
+        old_question,
         feedback,
-        exclude_questions
+        exclude_questions,
+        difficulty
       });
       return response.data;
     } catch (error) {
       console.error("重新生成题目失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 手动题目补充完整元数据
+   */
+  async completeManualQuestion(
+    candidate_id: number,
+    jd: string,
+    question: string
+  ): Promise<any> {
+    try {
+      const response = await apiClient.post('/interviews/complete-manual-question', {
+        candidate_id,
+        jd,
+        question
+      });
+      return response.data;
+    } catch (error) {
+      console.error("手动题目补充失败:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * 刷新评分维度
+   */
+  async refreshEvaluationCriteria(
+    candidate_id: number,
+    jd: string,
+    questions: string[]
+  ): Promise<string[]> {
+    try {
+      const response = await apiClient.post('/interviews/refresh-criteria', {
+        candidate_id,
+        jd,
+        questions
+      });
+      return response.data.evaluation_criteria;
+    } catch (error) {
+      console.error("刷新评分维度失败:", error);
       throw error;
     }
   },
@@ -171,12 +215,17 @@ export const geminiService = {
   },
 
   /**
-   * 上传文件供 Agent 处理
+   * 上传文件供 Agent 处理 (支持单文件或多文件)
    */
-  async uploadFileToAgent(file: File): Promise<{ status: string, filename: string, content: string }> {
+  async uploadFileToAgent(files: File | File[]): Promise<any> {
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      if (Array.isArray(files)) {
+        files.forEach(file => formData.append('files', file));
+      } else {
+        formData.append('files', files);
+      }
+      
       const response = await apiClient.post('/agent/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',

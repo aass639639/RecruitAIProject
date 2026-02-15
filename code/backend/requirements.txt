@@ -32,3 +32,9 @@ matplotlib==3.10.0
 seaborn==0.13.2
 scikit-learn==1.4.1
 seqeval==1.2.2
+python-docx
+pypdf
+lxml
+faster-whisper
+torch
+instructor

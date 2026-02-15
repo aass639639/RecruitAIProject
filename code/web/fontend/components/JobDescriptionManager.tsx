@@ -10,6 +10,8 @@ type ViewMode = 'list' | 'detail' | 'edit' | 'create';
 interface JobDescriptionManagerProps {
   currentUser: User | null;
   initialJdId?: number | null;
+  initialStatusFilter?: 'all' | 'active' | 'closed' | 'full';
+  initialShowMatching?: boolean;
   onClearInitialJd?: () => void;
   onViewEvaluations?: (candidateId?: string, jid?: number) => void;
   onViewCandidate?: (candidateId?: string, matchResult?: any) => void;
@@ -18,6 +20,8 @@ interface JobDescriptionManagerProps {
 const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({ 
   currentUser, 
   initialJdId, 
+  initialStatusFilter,
+  initialShowMatching,
   onClearInitialJd, 
   onViewEvaluations, 
   onViewCandidate 
@@ -29,7 +33,7 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
   const [selectedJd, setSelectedJd] = useState<JobDescription | null>(null);
   const [isPreview, setIsPreview] = useState(false);
   const [hiredCandidates, setHiredCandidates] = useState<Candidate[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed' | 'full'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed' | 'full'>(initialStatusFilter || 'all');
   const [categoryFilter, setCategoryFilter] = useState('全部');
   const [isMatching, setIsMatching] = useState(false);
   const [matchingResults, setMatchingResults] = useState<{ 
@@ -73,11 +77,19 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
       const jd = jds.find(j => j.id === initialJdId);
       if (jd) {
         handleGoToDetail(jd);
+        if (initialShowMatching) {
+          setShowMatchingSidePanel(true);
+          // 触发匹配逻辑
+          setTimeout(() => {
+            const matchBtn = document.getElementById('start-match-btn');
+            if (matchBtn) matchBtn.click();
+          }, 500);
+        }
         // 清除初始 ID，避免刷新时反复进入详情
         onClearInitialJd?.();
       }
     }
-  }, [initialJdId, jds]);
+  }, [initialJdId, jds, initialShowMatching]);
 
   const fetchInterviews = async () => {
     try {
@@ -282,7 +294,13 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
           return { id: c.id.toString(), ...res };
         })
       );
-      setMatchingResults(matchResults.sort((a, b) => b.score - a.score));
+      // 过滤掉低于 70 分的结果
+      const filteredResults = matchResults.filter(res => res.score >= 70);
+      setMatchingResults(filteredResults.sort((a, b) => b.score - a.score));
+      
+      if (filteredResults.length === 0) {
+        alert('抱歉，暂无合适候选人。');
+      }
     } catch (e) {
       console.error(e);
       alert('匹配失败，请稍后再试');
@@ -297,11 +315,6 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
     const reason = closeReasonInput.trim();
     if (!reason) {
       alert('请填写关闭理由');
-      return;
-    }
-
-    if (reason.length < 10) {
-      alert('关闭理由长度不能少于 10 个字符，请详细说明关闭原因');
       return;
     }
 
@@ -568,6 +581,7 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                     {selectedJd.is_active && selectedJd.current_hired_count < selectedJd.requirement_count && (
                       <>
                         <button 
+                          id="start-match-btn"
                           onClick={() => handleMatch(false)}
                           disabled={isMatching}
                           className={`px-5 py-2.5 rounded-2xl flex items-center space-x-2 transition-all shadow-sm font-bold text-sm ${
@@ -894,11 +908,11 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                   <textarea
                     value={closeReasonInput}
                     onChange={(e) => setCloseReasonInput(e.target.value)}
-                    placeholder="请输入关闭理由（不少于 10 个字符）..."
+                    placeholder="请输入关闭理由..."
                     className="w-full h-32 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 outline-none transition-all font-medium text-slate-700 placeholder:text-slate-300 resize-none"
                   ></textarea>
                   <div className="absolute bottom-3 right-3 text-[10px] font-bold text-slate-400">
-                    {closeReasonInput.trim().length} / 10+
+                    {closeReasonInput.trim().length} 字
                   </div>
                 </div>
                 
@@ -914,7 +928,7 @@ const JobDescriptionManager: React.FC<JobDescriptionManagerProps> = ({
                   </button>
                   <button 
                     onClick={handleCloseConfirm}
-                    disabled={closeReasonInput.trim().length < 10}
+                    disabled={!closeReasonInput.trim()}
                     className="flex-1 bg-orange-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-orange-700 shadow-lg shadow-orange-100 transition-all disabled:opacity-50 disabled:shadow-none"
                   >
                     确认关闭

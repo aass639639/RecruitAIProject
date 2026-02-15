@@ -11,6 +11,45 @@ interface AIAssistantProps {
   onAction?: (action: string, params: any) => void;
 }
 
+// 提取 JSON 清理逻辑
+const cleanJsonContent = (content: string) => {
+  // 1. 基础清理：移除 Markdown 标记
+  let clean = content.replace(/```(card|json)?/g, '').replace(/```/g, '').trim();
+  
+  // 2. 核心修复：处理反斜杠断词/行延续符
+  clean = clean.replace(/\\[ \t]*[\r\n]+[ \t]*/g, '');
+  
+  // 3. 结构修复：处理 JSON 内部非法的原始换行符
+  clean = clean.replace(/[\r\n]+/g, ' ');
+  
+  // 4. 精准提取：解决 "Unexpected non-whitespace character after JSON" 问题
+  // LLM 经常在 ```card ... ``` 后面又跟了一段解释文字。
+  // 我们只提取第一个出现的完整 { ... } 结构。
+  const firstBrace = clean.indexOf('{');
+  const lastBrace = clean.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    clean = clean.substring(firstBrace, lastBrace + 1);
+  }
+
+  // 5. 转义修复
+  if ((clean.match(/\\"/g) || []).length > 0 && (clean.match(/\\\\"/g) || []).length > 0) {
+    clean = clean.replace(/\\\\"/g, '\\"');
+  }
+
+  // 6. 细节清理：移除末尾逗号
+  clean = clean.replace(/,\s*([}\]])/g, '$1');
+  
+  // 7. 安全清理：移除注释
+  clean = clean.replace(/\/\/.*$/gm, '');
+  clean = clean.replace(/\/\*[\s\S]*?\*\//g, '');
+  
+  // 8. 终极清理：移除所有低位不可见控制字符
+  // eslint-disable-next-line no-control-regex
+  clean = clean.replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F]/g, "");
+  
+  return clean;
+};
+
 // 将子组件移到外部，避免在主组件渲染时重新创建组件定义，解决输入框焦点丢失问题
 const Header: React.FC<{ 
   mode: string; 
@@ -61,19 +100,29 @@ interface CandidateCardProps {
   matching_points?: string[];
   mismatched_points?: string[];
   jobId?: number;
+  jd_id?: number;
+  status?: string;
   onAction?: (action: string, params: any) => void;
 }
 
 const CandidateCard: React.FC<CandidateCardProps> = ({ 
-  id, name, position, score, analysis, matching_points, mismatched_points, jobId, onAction 
+  id, name, position, score, analysis, matching_points, mismatched_points, jobId, jd_id, status, onAction 
 }) => {
+  const isInterviewing = status === 'interviewing' || status === '面试中';
+  const effectiveJobId = jobId || jd_id;
+  
   return (
     <div className="group bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all duration-300 relative flex flex-col my-4">
       <div className="flex items-start justify-between mb-4">
         <div className="w-14 h-14 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 text-xl font-bold group-hover:bg-indigo-600 group-hover:text-white transition-colors">
           {name.charAt(0)}
         </div>
-        <div className="text-right">
+        <div className="text-right flex flex-col items-end gap-2">
+          {isInterviewing && (
+            <span className="bg-amber-50 text-amber-600 border border-amber-100 px-2.5 py-1 rounded-lg text-[10px] font-bold">
+              面试中
+            </span>
+          )}
           {score !== undefined ? (
             <>
               <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">匹配度</span>
@@ -96,15 +145,92 @@ const CandidateCard: React.FC<CandidateCardProps> = ({
         </div>
       )}
 
-      <div className="pt-4 border-t border-slate-50 flex items-center gap-2">
-        <button 
-          onClick={() => onAction?.('candidate', { id, score, analysis, matching_points, mismatched_points })}
-          className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-95"
-        >
-          <i className="fa-solid fa-circle-info"></i>
-          查看详情
-        </button>
+      <div className="pt-4 border-t border-slate-50 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => onAction?.('candidate', { id, score, analysis, matching_points, mismatched_points })}
+            className="flex-1 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all flex items-center justify-center gap-2 active:scale-95"
+          >
+            <i className="fa-solid fa-circle-info"></i>
+            详情
+          </button>
+          
+          {effectiveJobId && !isInterviewing && (
+            <button 
+              onClick={() => onAction?.('assign', { candidateId: id, jobId: effectiveJobId, candidateName: name })}
+              className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-95"
+            >
+              <i className="fa-solid fa-calendar-check"></i>
+              安排面试
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
+};
+
+interface InterviewCardProps {
+  id: number;
+  candidate_name: string;
+  candidate_id: string;
+  status: string;
+  hiring_decision?: string;
+  notes?: string;
+  interview_time?: string;
+  onAction?: (action: string, params: any) => void;
+}
+
+const InterviewCard: React.FC<InterviewCardProps> = ({
+  id, candidate_name, candidate_id, status, hiring_decision, notes, interview_time, onAction
+}) => {
+  const getDecisionBadge = (decision?: string) => {
+    switch(decision) {
+      case 'hire': return <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold">建议录用</span>;
+      case 'pass': return <span className="bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded text-[10px] font-bold">进入下轮</span>;
+      case 'reject': return <span className="bg-rose-50 text-rose-600 border border-rose-100 px-2 py-0.5 rounded text-[10px] font-bold">不建议录用</span>;
+      default: return null;
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      'pending': '待处理',
+      'in_progress': '面试中',
+      'pending_decision': '待评价',
+      'completed': '已完成'
+    };
+    return labels[status] || status;
+  };
+
+  return (
+    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-200 transition-all my-4">
+      <div className="flex justify-between items-start mb-3">
+        <div>
+          <h3 className="text-base font-bold text-slate-800">{candidate_name} 的面试结果</h3>
+          <p className="text-[10px] text-slate-500 font-medium mt-0.5">面试时间: {interview_time}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+            {getStatusLabel(status)}
+          </span>
+          {getDecisionBadge(hiring_decision)}
+        </div>
+      </div>
+      
+      {notes && (
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
+          <p className="text-xs text-slate-600 line-clamp-3 italic">"{notes}"</p>
+        </div>
+      )}
+
+      <button
+        onClick={() => onAction?.('interview_detail', { candidate_name })}
+        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"
+      >
+        <i className="fa-solid fa-magnifying-glass"></i>
+        查看面试评价详情
+      </button>
     </div>
   );
 };
@@ -114,11 +240,14 @@ interface JobCardProps {
   title: string;
   category: string;
   requirement_count: number;
+  hired_count?: number;
   description?: string;
+  status?: string;
+  action?: string;
   onAction?: (action: string, params: any) => void;
 }
 
-const JobCard: React.FC<JobCardProps> = ({ id, title, category, requirement_count, description, onAction }) => (
+const JobCard: React.FC<JobCardProps> = ({ id, title, category, requirement_count, hired_count, description, status, action, onAction }) => (
   <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all my-4 group border-l-4 border-l-indigo-500">
     <div className="flex justify-between items-start mb-4">
       <div>
@@ -126,9 +255,18 @@ const JobCard: React.FC<JobCardProps> = ({ id, title, category, requirement_coun
           <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-wider rounded-md">
             {category}
           </span>
-          <span className="text-[10px] text-slate-400 font-bold">
-            需求: {requirement_count}人
-          </span>
+          <div className="flex items-center gap-2">
+            {requirement_count > 0 && (
+              <span className="text-[10px] text-slate-400 font-bold">
+                需求: {requirement_count}人
+              </span>
+            )}
+            {id !== 0 && hired_count !== undefined && hired_count >= 0 && (
+              <span className="text-[10px] text-emerald-500 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
+                已招: {hired_count}人
+              </span>
+            )}
+          </div>
         </div>
         <h4 className="font-black text-slate-800 tracking-tight text-base group-hover:text-indigo-600 transition-colors">{title}</h4>
       </div>
@@ -146,11 +284,11 @@ const JobCard: React.FC<JobCardProps> = ({ id, title, category, requirement_coun
     )}
 
     <button 
-      onClick={() => onAction?.('jd', { id })}
+      onClick={() => onAction?.(action || 'jd', { id, status })}
       className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-95"
     >
       <i className="fa-solid fa-circle-info"></i>
-      职位详情
+      {id === 0 ? '查看列表' : (action === 'match' ? '人才匹配' : '职位详情')}
     </button>
   </div>
 );
@@ -165,7 +303,9 @@ const ChatArea: React.FC<{
 
   const handleCopy = async (text: string, index: number) => {
     try {
-      await navigator.clipboard.writeText(text);
+      // 过滤掉 [上传文件: ...] 及其后的换行符
+      const filteredText = text.replace(/^\[上传文件:.*?\]\n?/, '').trim();
+      await navigator.clipboard.writeText(filteredText);
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 2000);
     } catch (err) {
@@ -193,7 +333,10 @@ const ChatArea: React.FC<{
       const action = parts[1];
       const params: any = {};
       
-      if (action === 'jd') params.id = parseInt(parts[2]);
+      if (action === 'jd') {
+        params.id = parseInt(parts[2]);
+        if (parts[3]) params.status = parts[3];
+      }
       if (action === 'candidate') params.id = parts[2];
       if (action === 'assign') {
         params.candidateId = parts[2];
@@ -285,21 +428,43 @@ const ChatArea: React.FC<{
                   p: ({ children }) => {
                     // 尝试在段落中寻找卡片 JSON
                     const content = React.Children.toArray(children).join('');
-                    if (content.trim().startsWith('{') && content.includes('"type": "candidate"')) {
+                    if (content.includes('"type": "candidate"') || content.includes('"type": "job"') || content.includes('"type": "interview"')) {
                       try {
-                        const cleanContent = content.trim().replace(/,\s*([}\]])/g, '$1');
+                        const cleanContent = cleanJsonContent(content);
                         const data = JSON.parse(cleanContent);
-                        return <CandidateCard {...data.props} onAction={onAction} />;
+                        
+                        // 提取卡片之外的剩余文本
+                        // 找到最后一个 } 之后的内容
+                        const lastBraceIndex = content.lastIndexOf('}');
+                        let remainingText = '';
+                        if (lastBraceIndex !== -1) {
+                          // 移除可能存在的 ``` 标记
+                          remainingText = content.substring(lastBraceIndex + 1).replace(/```/g, '').trim();
+                        }
+
+                        let cardComponent = null;
+                        if (data.type === 'candidate') {
+                          cardComponent = <CandidateCard {...data.props} onAction={onAction} />;
+                        } else if (data.type === 'job') {
+                          cardComponent = <JobCard {...data.props} onAction={onAction} />;
+                        } else if (data.type === 'interview') {
+                          cardComponent = <InterviewCard {...data.props} onAction={onAction} />;
+                        }
+
+                        if (cardComponent) {
+                          return (
+                            <div className="flex flex-col gap-2 mb-4">
+                              {cardComponent}
+                              {remainingText && (
+                                <p className="text-sm text-slate-600 mt-1">{remainingText}</p>
+                              )}
+                            </div>
+                          );
+                        }
                       } catch (e) {
-                        // 解析失败则按普通文本渲染
-                      }
-                    }
-                    if (content.trim().startsWith('{') && content.includes('"type": "job"')) {
-                      try {
-                        const cleanContent = content.trim().replace(/,\s*([}\]])/g, '$1');
-                        const data = JSON.parse(cleanContent);
-                        return <JobCard {...data.props} onAction={onAction} />;
-                      } catch (e) {
+                        console.error('Card JSON parse error (Paragraph):', e);
+                        console.error('Original content:', content);
+                        console.error('Cleaned content:', cleanJsonContent(content));
                         // 解析失败则按普通文本渲染
                       }
                     }
@@ -312,8 +477,7 @@ const ChatArea: React.FC<{
                     if (match && match[1] === 'card') {
                       console.log('Markdown: Found card block:', content);
                       try {
-                        // 预处理内容，防止 agent 输出一些非标准的 JSON（如带有注释或末尾逗号）
-                        const cleanContent = content.trim().replace(/,\s*([}\]])/g, '$1');
+                        const cleanContent = cleanJsonContent(content);
                         const data = JSON.parse(cleanContent);
                         console.log('Markdown: Parsed card data:', data);
                         
@@ -333,12 +497,26 @@ const ChatArea: React.FC<{
                             />
                           );
                         }
+                        if (data.type === 'interview') {
+                          return (
+                            <InterviewCard 
+                              {...data.props} 
+                              onAction={onAction} 
+                            />
+                          );
+                        }
                       } catch (e) {
-                        console.error('Card JSON parse error:', e, content);
+                        const cleaned = cleanJsonContent(content);
+                        console.error('Card JSON parse error (Codeblock):', e);
+                        console.error('Original content:', content);
+                        console.error('Cleaned content:', cleaned);
                         return (
                           <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl text-rose-600 text-[10px] font-mono whitespace-pre-wrap">
                             <p className="font-black mb-1">卡片解析失败:</p>
-                            {content}
+                            <p className="mb-2 opacity-70">Error: {e instanceof Error ? e.message : String(e)}</p>
+                            <div className="p-2 bg-white/50 rounded border border-rose-200 overflow-x-auto">
+                              {cleaned}
+                            </div>
                           </div>
                         );
                       }
@@ -352,16 +530,14 @@ const ChatArea: React.FC<{
             </div>
             <div className={`text-[10px] mt-2 font-medium flex items-center justify-between ${msg.role === 'user' ? 'text-blue-100' : 'text-slate-400'}`}>
               <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              {msg.role === 'assistant' && (
-                <button
-                  onClick={() => handleCopy(msg.content, index)}
-                  className="flex items-center gap-1 hover:text-blue-600 transition-colors"
-                  title="复制回答"
-                >
-                  <i className={`fa-solid ${copiedIndex === index ? 'fa-check text-emerald-500' : 'fa-copy'}`}></i>
-                  <span>{copiedIndex === index ? '已复制' : '复制'}</span>
-                </button>
-              )}
+              <button
+                onClick={() => handleCopy(msg.content, index)}
+                className={`flex items-center gap-1 transition-colors ${msg.role === 'user' ? 'hover:text-white' : 'hover:text-blue-600'}`}
+                title="复制消息内容"
+              >
+                <i className={`fa-solid ${copiedIndex === index ? 'fa-check text-emerald-500' : 'fa-copy'}`}></i>
+                <span>{copiedIndex === index ? '已复制' : '复制'}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -384,11 +560,11 @@ const InputArea: React.FC<{
   inputMessage: string; 
   setInputMessage: (val: string) => void; 
   handleSendMessage: () => void; 
-  handleFileUpload: (file: File) => void;
-  pendingFile: { name: string; content: string } | null;
-  onRemoveFile: () => void;
+  handleFileUpload: (files: FileList | null) => void;
+  pendingFiles: { name: string; content: string }[];
+  onRemoveFile: (index: number) => void;
   isLoading: boolean 
-}> = ({ inputMessage, setInputMessage, handleSendMessage, handleFileUpload, pendingFile, onRemoveFile, isLoading }) => {
+}> = ({ inputMessage, setInputMessage, handleSendMessage, handleFileUpload, pendingFiles, onRemoveFile, isLoading }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -408,9 +584,9 @@ const InputArea: React.FC<{
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileUpload(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFileUpload(files);
       // 清空 input 以便下次选择同一文件
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -418,16 +594,20 @@ const InputArea: React.FC<{
 
   return (
     <div className="p-5 bg-white border-t border-slate-100 flex-shrink-0">
-      {pendingFile && (
-        <div className="mb-3 flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <i className="fa-solid fa-file-lines text-blue-500 text-xs"></i>
-          <span className="text-xs font-bold text-blue-700 truncate max-w-[200px]">{pendingFile.name}</span>
-          <button 
-            onClick={onRemoveFile}
-            className="ml-auto w-5 h-5 flex items-center justify-center rounded-full hover:bg-blue-200 text-blue-400 hover:text-blue-600 transition-colors"
-          >
-            <i className="fa-solid fa-xmark text-[10px]"></i>
-          </button>
+      {pendingFiles.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          {pendingFiles.map((file, index) => (
+            <div key={index} className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100">
+              <i className="fa-solid fa-file-lines text-blue-500 text-[10px]"></i>
+              <span className="text-[10px] font-bold text-blue-700 truncate max-w-[120px]">{file.name}</span>
+              <button 
+                onClick={() => onRemoveFile(index)}
+                className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-blue-200 text-blue-400 hover:text-blue-600 transition-colors"
+              >
+                <i className="fa-solid fa-xmark text-[8px]"></i>
+              </button>
+            </div>
+          ))}
         </div>
       )}
       <div className="flex gap-3 items-end bg-slate-100 p-2 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
@@ -437,12 +617,13 @@ const InputArea: React.FC<{
           onChange={onFileChange} 
           className="hidden" 
           accept=".pdf,.doc,.docx,.txt"
+          multiple
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={isLoading || !!pendingFile}
+          disabled={isLoading}
           className="w-10 h-10 text-slate-400 hover:text-blue-600 hover:bg-white rounded-xl flex-shrink-0 flex items-center justify-center transition-all active:scale-95 mb-0.5 disabled:opacity-30"
-          title={pendingFile ? "已选择文件" : "上传文件 (简历/JD)"}
+          title="上传文件 (简历/JD)"
         >
           <i className="fa-solid fa-paperclip text-lg"></i>
         </button>
@@ -452,7 +633,7 @@ const InputArea: React.FC<{
           value={inputMessage}
           onChange={(e) => setInputMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={pendingFile ? "请输入针对该文件的操作指令..." : "输入指令或上传文件..."}
+          placeholder={pendingFiles.length > 0 ? "请输入针对这些文件的操作指令..." : "输入指令或上传文件..."}
           className="flex-1 px-2 py-2 bg-transparent border-none text-sm focus:ring-0 outline-none font-medium text-slate-700 placeholder:text-slate-400 resize-none overflow-y-auto"
           style={{ maxHeight: '200px' }}
         />
@@ -477,7 +658,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
   const [isOpen, setIsOpen] = useState(mode === 'embedded');
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [pendingFile, setPendingFile] = useState<{ name: string; content: string } | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<{ name: string; content: string }[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -493,9 +674,11 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
     let displayMessage = inputMessage;
 
     // 如果有待处理文件，将其内容合并到消息中
-    if (pendingFile) {
-      finalMessage = `我上传了一个文件 "${pendingFile.name}"，内容如下，请帮我处理（如果是简历请入库，如果是 JD 请创建）：\n\n${pendingFile.content}\n\n用户指令：${inputMessage}`;
-      displayMessage = `[上传文件: ${pendingFile.name}]\n${inputMessage}`;
+    if (pendingFiles.length > 0) {
+      const filesContent = pendingFiles.map(f => `文件 "${f.name}" 内容如下：\n${f.content}`).join('\n\n---\n\n');
+      const fileNames = pendingFiles.map(f => f.name).join(', ');
+      finalMessage = `我上传了 ${pendingFiles.length} 个文件 [${fileNames}]，内容如下，请帮我处理（如果是简历请入库，如果是 JD 请创建）：\n\n${filesContent}\n\n用户指令：${inputMessage}`;
+      displayMessage = `[上传文件: ${fileNames}]\n${inputMessage}`;
     }
 
     const userMsg: ChatMessage = {
@@ -506,7 +689,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
 
     setChatHistory(prev => [...prev, userMsg]);
     setInputMessage('');
-    setPendingFile(null); // 发送后清除暂存文件
+    setPendingFiles([]); // 发送后清除暂存文件
     setIsLoading(true);
 
     try {
@@ -518,7 +701,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
       const response = await geminiService.chatWithAgent(finalMessage, history);
       
       const aiMsg: ChatMessage = {
-        role: 'assistant',
+        role: 'assistant', // Corrected to assistant based on original code flow
         content: response.answer,
         timestamp: new Date().toISOString()
       };
@@ -536,16 +719,33 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
     }
   };
 
-  const handleFileUpload = async (file: File) => {
-    if (isLoading) return;
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0 || isLoading) return;
     setIsLoading(true);
 
     try {
-      const response = await geminiService.uploadFileToAgent(file);
-      setPendingFile({
-        name: file.name,
-        content: response.content
-      });
+      const fileArray = Array.from(files);
+      const response = await geminiService.uploadFileToAgent(fileArray);
+      
+      // 后端返回可能是单个对象（单文件）或数组（多文件）
+      const newFiles = Array.isArray(response) ? response : [response];
+      
+      const processedFiles = newFiles
+        .filter((res: any) => res.status === 'success')
+        .map((res: any) => ({
+          name: res.filename,
+          content: res.content
+        }));
+
+      if (processedFiles.length > 0) {
+        setPendingFiles(prev => [...prev, ...processedFiles]);
+      }
+
+      // 如果有解析失败的文件，给个提示
+      const failedFiles = newFiles.filter((res: any) => res.status === 'error');
+      if (failedFiles.length > 0) {
+        alert(`部分文件解析失败: ${failedFiles.map((f: any) => f.filename).join(', ')}`);
+      }
     } catch (error) {
       console.error("文件上传失败:", error);
       alert("文件解析失败，请确保文件格式正确且内容可读。");
@@ -564,8 +764,8 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
           setInputMessage={setInputMessage} 
           handleSendMessage={handleSendMessage} 
           handleFileUpload={handleFileUpload}
-          pendingFile={pendingFile}
-          onRemoveFile={() => setPendingFile(null)}
+          pendingFiles={pendingFiles}
+          onRemoveFile={(index) => setPendingFiles(prev => prev.filter((_, i) => i !== index))}
           isLoading={isLoading} 
         />
       </div>
@@ -583,13 +783,12 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
           <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
             <i className="fa-solid fa-robot text-white text-lg group-hover:animate-bounce"></i>
           </div>
-          <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
         </button>
       )}
 
-      {/* 聊天窗口 */}
+      {/* 对话窗口 */}
       {isOpen && (
-        <div className="absolute bottom-0 right-0 w-[420px] h-[600px] bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden border border-slate-200/50 animate-in fade-in slide-in-from-bottom-8 duration-300">
+        <div className="w-[450px] h-[750px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200/50 animate-in fade-in slide-in-from-bottom-10 duration-500">
           <Header mode={mode} setIsOpen={setIsOpen} onClear={() => setChatHistory([])} />
           <ChatArea chatHistory={chatHistory} isLoading={isLoading} chatEndRef={chatEndRef} onAction={onAction} />
           <InputArea 
@@ -597,8 +796,8 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
             setInputMessage={setInputMessage} 
             handleSendMessage={handleSendMessage} 
             handleFileUpload={handleFileUpload}
-            pendingFile={pendingFile}
-            onRemoveFile={() => setPendingFile(null)}
+            pendingFiles={pendingFiles}
+            onRemoveFile={(index) => setPendingFiles(prev => prev.filter((_, i) => i !== index))}
             isLoading={isLoading} 
           />
         </div>

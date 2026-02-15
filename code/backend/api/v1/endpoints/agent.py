@@ -39,21 +39,38 @@ async def chat_with_agent(request: AgentChatRequest):
     )
 
 @router.post("/upload")
-async def upload_file_to_agent(file: UploadFile = File(...)):
+async def upload_files_to_agent(files: List[UploadFile] = File(...)):
     """
-    上传文件并提取文本，供 Agent 进一步处理
+    支持多文件上传并提取文本，供 Agent 进一步处理
     """
-    try:
-        content = await file.read()
-        text = extract_text_from_file(content, file.filename)
-        if not text.strip():
-            raise HTTPException(status_code=400, detail="文件内容为空，无法解析")
+    results = []
+    for file in files:
+        try:
+            content = await file.read()
+            text = extract_text_from_file(content, file.filename)
+            if not text.strip():
+                results.append({
+                    "status": "error",
+                    "filename": file.filename,
+                    "detail": "文件内容为空，无法解析"
+                })
+                continue
+            
+            results.append({
+                "status": "success",
+                "filename": file.filename,
+                "content": text
+            })
+        except Exception as e:
+            logger.error(f"Error uploading file {file.filename} to agent: {str(e)}")
+            results.append({
+                "status": "error",
+                "filename": file.filename,
+                "detail": str(e)
+            })
+    
+    # 为了兼容前端现有的单文件处理逻辑，如果只上传了一个文件，直接返回该对象
+    if len(results) == 1:
+        return results[0]
         
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "content": text
-        }
-    except Exception as e:
-        logger.error(f"Error uploading file to agent: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return results

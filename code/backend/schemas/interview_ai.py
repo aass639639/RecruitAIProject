@@ -57,8 +57,13 @@ class InterviewEvaluationRequest(BaseModel):
     performances: List[InterviewQuestionPerformance]
     overall_notes: Optional[str] = None
 
+class InterviewEvaluationResult(BaseModel):
+    dimension: str = Field(..., description="评估维度：如技术深度、沟通能力、逻辑思维等")
+    score: float = Field(..., description="分数 (0-100)")
+    feedback: str = Field(..., description="具体的评价反馈")
+
 class InterviewEvaluationResponse(BaseModel):
-    technical_evaluation: str = Field(..., description="技术层面评价")
-    logical_evaluation: str = Field(..., description="逻辑表达评价")
-    clarity_evaluation: str = Field(..., description="思路清晰度评价")
+    technical_evaluation: InterviewEvaluationResult = Field(..., description="技术层面评价")
+    logical_evaluation: InterviewEvaluationResult = Field(..., description="逻辑表达评价")
+    communication_evaluation: InterviewEvaluationResult = Field(..., description="沟通能力评价")
     comprehensive_suggestion: str = Field(..., description="综合建议")
