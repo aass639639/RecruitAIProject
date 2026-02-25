@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统技术架构图</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        :root {
+            --blue-bg: #E3F2FD;
+            --blue-border: #1565C0;
+            --blue-text: #0D47A1;
+            
+            --purple-bg: #F3E5F5;
+            --purple-border: #7B1FA2;
+            --purple-text: #4A148C;
+            
+            --yellow-bg: #FFF9C4;
+            --yellow-border: #FBC02D;
+            --yellow-text: #F57F17;
+            
+            --green-bg: #E8F5E9;
+            --green-border: #2E7D32;
+            --green-text: #1B5E20;
+            
+            --grey-bg: #ECEFF1;
+            --grey-border: #616161;
+            --grey-text: #37474F;
+
+            --card-bg: #FFFFFF;
+            --shadow: 0 4px 6px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Noto Sans SC', 'Roboto', sans-serif;
+            background-color: #FAFAFA;
+            color: #333;
+            display: flex;
+            justify-content: center;
+        }
+
+        .poster-container {
+            width: min(1400px, 98vw);
+            min-height: 960px;
+            background-color: #FFFFFF;
+            padding: 40px 48px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            width: 100%;
+        }
+
+        h1 {
+            font-size: 48px;
+            margin: 0;
+            color: #263238;
+            letter-spacing: -1px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: #78909C;
+            margin-top: 8px;
+            font-weight: 400;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        /* Layer Styles */
+        .layer {
+            width: 100%;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 8px;
+            border: 2px solid;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        .layer-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .layer-icon {
+            font-size: 24px;
+        }
+
+        /* Cards Container */
+        .cards-container {
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 12px 16px;
+            box-shadow: var(--shadow);
+            flex: 1;
+            min-width: 140px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-left: 4px solid rgba(0,0,0,0.1);
+        }
+
+        .card-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #37474F;
+            margin-bottom: 4px;
+        }
+
+        .card-desc {
+            font-size: 12px;
+            color: #78909C;
+            line-height: 1.4;
+        }
+
+        /* Connector Arrow */
+        .connector {
+            height: 14px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #B0BEC5;
+            margin: 2px 0;
+        }
+        
+        .connector i {
+            font-size: 18px;
+        }
+
+        /* Specific Layer Colors */
+        .layer-blue {
+            background-color: var(--blue-bg);
+            border-color: var(--blue-border);
+        }
+        .layer-blue .layer-title { color: var(--blue-text); }
+        .layer-blue .card { border-left-color: var(--blue-border); }
+
+        .layer-purple {
+            background-color: var(--purple-bg);
+            border-color: var(--purple-border);
+        }
+        .layer-purple .layer-title { color: var(--purple-text); }
+        .layer-purple .card { border-left-color: var(--purple-border); }
+
+        .layer-yellow {
+            background-color: var(--yellow-bg);
+            border-color: var(--yellow-border);
+        }
+        .layer-yellow .layer-title { color: #F9A825; }
+        .layer-yellow .card { border-left-color: #FBC02D; }
+
+        .layer-green {
+            background-color: var(--green-bg);
+            border-color: var(--green-border);
+        }
+        .layer-green .layer-title { color: var(--green-text); }
+        .layer-green .card { border-left-color: var(--green-border); }
+
+        .layer-grey {
+            background-color: var(--grey-bg);
+            border-color: var(--grey-border);
+        }
+        .layer-grey .layer-title { color: var(--grey-text); }
+        .layer-grey .card { border-left-color: var(--grey-border); }
+
+        /* Sub-sections inside layers */
+        .sub-section {
+            background: rgba(255,255,255,0.6);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .sub-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Make Layer 4 (Business) single row of 6 cards with framed subgroups */
+        .layer-green {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 12px;
+            align-items: start;
+        }
+        .layer-green .layer-title { grid-column: 1 / -1; grid-row: 1; margin-bottom: 6px; }
+        .layer-green .sub-section {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid rgba(46,125,50,0.35);
+            border-radius: 10px;
+            background: rgba(46,125,50,0.06);
+            margin-bottom: 0;
+            grid-column: span 3;
+        }
+        .layer-green .sub-section:nth-of-type(1) { grid-column: 1 / span 3; grid-row: 2; }
+        .layer-green .sub-section:nth-of-type(2) { grid-column: 4 / span 3; grid-row: 2; }
+        .layer-green .sub-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #1B5E20;
+            font-weight: 700;
+            font-size: 13px;
+            grid-column: 1 / -1;
+            margin: 0 0 6px 0;
+        }
+        .layer-green .sub-cards { display: contents; }
+        
+        /* Make Layer 5 (Infrastructure) single row of 6 cards with framed subgroups */
+        .layer-grey {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 12px;
+            align-items: start;
+        }
+        .layer-grey .layer-title { grid-column: 1 / -1; grid-row: 1; margin-bottom: 6px; }
+        .layer-grey .sub-section {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid rgba(97,97,97,0.35);
+            border-radius: 10px;
+            background: rgba(97,97,97,0.06);
+            margin-bottom: 0;
+            grid-column: span 3;
+        }
+        .layer-grey .sub-section:nth-of-type(1) { grid-column: 1 / span 3; grid-row: 2; }
+        .layer-grey .sub-section:nth-of-type(2) { grid-column: 4 / span 3; grid-row: 2; }
+        .layer-grey .sub-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #37474F;
+            font-weight: 700;
+            font-size: 13px;
+            grid-column: 1 / -1;
+            margin: 0 0 6px 0;
+        }
+        .layer-grey .sub-cards { display: contents; }
+        
+        /* Responsive fallback */
+        @media (max-width: 900px) {
+            .layer-green, .layer-grey { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .layer-green .sub-section,
+            .layer-grey .sub-section { grid-column: 1 / -1; }
+        }
+        @media (max-width: 640px) {
+            .layer-green, .layer-grey { grid-template-columns: 1fr; }
+            .layer-green .sub-section,
+            .layer-grey .sub-section { grid-template-columns: 1fr; }
+        }
+        
+        
+        .sub-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #546E7A;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .sub-cards {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .sub-cards .card { flex: 1 1 160px; }
+
+        /* Footer */
+        .footer {
+            margin-top: auto;
+            padding-top: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #B0BEC5;
+            width: 100%;
+            border-top: 1px solid #ECEFF1;
+        }
+
+        /* Badge for emphasis */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        
+        .bg-blue .badge { background: #BBDEFB; color: #0D47A1; }
+        .bg-purple .badge { background: #E1BEE7; color: #4A148C; }
+        .bg-green .badge { background: #C8E6C9; color: #1B5E20; }
+        .bg-grey .badge { background: #CFD8DC; color: #37474F; }
+
+    </style>
+</head>
+<body>
+    <div class="poster-container">
+        <header>
+            <h1>系统技术架构图</h1>
+            <div class="subtitle">Intelligent Recruitment System Architecture</div>
+        </header>
+
+        <!-- Layer 1: UI -->
+        <div class="layer layer-blue">
+            <div class="layer-title">
+                <i class="material-icons">devices</i>
+                用户交互层 (Presentation Layer)
+            </div>
+            <div class="cards-container">
+                <div class="card">
+                    <div class="card-title">Web 前端门户</div>
+                    <div class="card-desc">React 19 + Tailwind</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">智能对话组件</div>
+                    <div class="card-desc">Chat Interface</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">数据可视化</div>
+                    <div class="card-desc">Recharts Dashboard</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="connector"><i class="material-icons">arrow_downward</i></div>
+
+        <!-- Layer 2: Gateway -->
+        <div class="layer layer-purple">
+            <div class="layer-title">
+                <i class="material-icons">router</i>
+                接入网关层 (Gateway Layer)
+            </div>
+            <div class="cards-container">
+                <div class="card">
+                    <div class="card-title">RESTful API</div>
+                    <div class="card-desc">FastAPI Service</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">WebSocket</div>
+                    <div class="card-desc">实时推流</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">安全认证</div>
+                    <div class="card-desc">JWT / OAuth2</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="connector"><i class="material-icons">arrow_downward</i></div>
+
+        <!-- Layer 3: Intelligent Core -->
+        <div class="layer layer-yellow">
+            <div class="layer-title">
+                <i class="material-icons">psychology</i>
+                智能中枢层 (Intelligent Core)
+            </div>
+            <div class="cards-container">
+                <div class="card">
+                    <div class="card-title">意图识别路由</div>
+                    <div class="card-desc">Intent Router</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">任务规划调度</div>
+                    <div class="card-desc">Task Planner</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">会话记忆管理</div>
+                    <div class="card-desc">Context Memory</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="connector"><i class="material-icons">arrow_downward</i></div>
+
+        <!-- Layer 4: Business -->
+        <div class="layer layer-green">
+            <div class="layer-title">
+                <i class="material-icons">settings_suggest</i>
+                业务能力层 (Business Capability)
+            </div>
+            
+            <!-- Sub-module: Skills -->
+            <div class="sub-section">
+                <div class="sub-title">
+                    <i class="material-icons" style="font-size: 16px;">handyman</i>
+                    原子技能池 (Skill Registry)
+                </div>
+                <div class="sub-cards">
+                    <div class="card">
+                        <div class="card-title">智能搜索</div>
+                        <div class="card-desc">人才/职位检索</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">深度分析</div>
+                        <div class="card-desc">人岗匹配/评分</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">知识问答</div>
+                        <div class="card-desc">RAG 增强检索</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sub-module: Agents -->
+            <div class="sub-section">
+                <div class="sub-title">
+                    <i class="material-icons" style="font-size: 16px;">groups</i>
+                    多智能体协作 (Multi-Agent)
+                </div>
+                <div class="sub-cards">
+                    <div class="card">
+                        <div class="card-title">智能面试</div>
+                        <div class="card-desc">Planner/Evaluator</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">简历解析</div>
+                        <div class="card-desc">OCR/Scoring</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">智能匹配</div>
+                        <div class="card-desc">Vector/Semantic</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="connector"><i class="material-icons">arrow_downward</i></div>
+
+        <!-- Layer 5: Infrastructure -->
+        <div class="layer layer-grey">
+            <div class="layer-title">
+                <i class="material-icons">dns</i>
+                模型与数据基座 (Infrastructure)
+            </div>
+
+            <div class="sub-section">
+                <div class="sub-title">
+                    <i class="material-icons" style="font-size: 16px;">smart_toy</i>
+                    模型服务 (Models)
+                </div>
+                <div class="sub-cards">
+                    <div class="card">
+                        <div class="card-title">大语言模型</div>
+                        <div class="card-desc">DeepSeek-V3</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">向量嵌入</div>
+                        <div class="card-desc">BGE / Ark</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">语音识别</div>
+                        <div class="card-desc">Faster-Whisper</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-section">
+                <div class="sub-title">
+                    <i class="material-icons" style="font-size: 16px;">storage</i>
+                    数据存储 (Data Storage)
+                </div>
+                <div class="sub-cards">
+                    <div class="card">
+                        <div class="card-title">向量数据库</div>
+                        <div class="card-desc">ChromaDB</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">关系型数据库</div>
+                        <div class="card-desc">SQLite</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">非结构化存储</div>
+                        <div class="card-desc">File System</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            System Architecture Design &copy; 2024
+        </div>
+    </div>
+</body>
+</html>
